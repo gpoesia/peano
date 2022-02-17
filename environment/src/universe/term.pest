@@ -1,0 +1,24 @@
+// Terms grammar
+
+context = { SOI ~ definition* }
+
+term = _{ lambda | application | atom }
+
+definition = { declaration ~ ("=" ~ term)? ~ "." }
+
+lambda = { "lambda" ~ "(" ~ declaration ~ ("," ~ declaration)* ~ ")" ~ term }
+declaration = { atom ~ ":" ~ ttype }
+
+ttype = _{ atom | application | arrow }
+arrow = { "[" ~ (arrow_input_type ~ "->" )+ ~ ttype ~ "]" }
+
+arrow_input_type = _{ ttype | ( "(" ~ declaration ~ ")" ) }
+
+application = { "(" ~ term ~ term+ ~ ")" }
+
+atom = @{ ('0'..'9' | 'a'..'z' | 'A'..'Z'
+                 | "_" | "-" | "+" | "/" | "*" | "="
+                 | "!" | "$" | "^" | ">" | "<" )+ }
+
+WHITESPACE = _{ " " | "\n" | "\t" | "\r" }
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
