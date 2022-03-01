@@ -2,7 +2,7 @@
 
 context = { SOI ~ definition* }
 
-term = _{ lambda | application | atom }
+term = _{ lambda | application | atom | arrow }
 
 definition = { declaration ~ ("=" ~ term)? ~ "." }
 
