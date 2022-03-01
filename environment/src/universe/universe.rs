@@ -1,6 +1,8 @@
 use std::option::Option;
 use std::rc::Rc;
 use std::collections::hash_set::Iter;
+use std::io;
+use std::path::Path;
 
 use egg::*;
 use super::term::{Context, Term, Definition};
@@ -159,8 +161,8 @@ impl Universe {
         }
     }
 
-    pub fn dot(&self, path: &str) {
-        self.egraph.dot().to_png(path);
+    pub fn to_png(&self, path: impl AsRef<Path>) -> Result<(), io::Error> {
+        self.egraph.dot().to_png(path)
     }
 
     fn nondeterministically_apply_arrow(&self,

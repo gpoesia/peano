@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 
-pub mod term;
-pub mod universe;
+mod term;
+mod universe;
 
-use universe::*;
-use term::*;
+pub use self::universe::*;
+pub use self::term::*;

@@ -281,7 +281,7 @@ impl Term {
                     let mut b = body.clone();
 
                     for (i, a) in arguments.iter().enumerate() {
-                        if let Term::Declaration { name, dtype } = parameters[i].as_ref() {
+                        if let Term::Declaration { name, dtype: _ } = parameters[i].as_ref() {
                             let arg = a.eval(ctx);
                             b = b.replace(name, &arg);
 
@@ -298,7 +298,7 @@ impl Term {
                         return Rc::new(Term::Lambda { parameters: remaining.to_vec(), body: b });
                     }
                     return b;
-                } else if let Term::Application { function: function, arguments: first_args } = f.as_ref() {
+                } else if let Term::Application { function, arguments: first_args } = f.as_ref() {
                     let mut v = first_args.clone();
                     v.append(&mut arguments.clone());
                     return Rc::new(Term::Application { function: function.clone(), arguments: v });
