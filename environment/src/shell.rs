@@ -1,12 +1,13 @@
 use std::fs;
 use std::io;
 use std::process::{Command, ExitStatus};
+use std::rc::Rc;
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use tempfile::NamedTempFile;
 
-use peano::universe::{Universe, Context};
+use peano::universe::{Universe, Context, Term};
 
 // Program used to open images (used to visualize the underlying egraph).
 #[cfg(target_os = "linux")]
@@ -57,6 +58,13 @@ impl Shell {
             .status()
     }
 
+    pub fn is_inhabited(&self, type_str: &str) -> Result<Option<String>, String> {
+        match type_str.parse::<Term>() {
+            Err(e) => Err(e.to_string()),
+            Ok(t) => Ok(self.universe.inhabited(&Rc::new(t))),
+        }
+    }
+
     pub fn repl(&mut self) {
         let mut rl = Editor::<()>::new();
 
@@ -84,6 +92,12 @@ impl Shell {
                         } else if command == "apply" {
                             self.universe.apply(&args.to_string());
                             println!("{}", self.universe.dump_context());
+                        } else if command == "inhabited" {
+                            match self.is_inhabited(&args) {
+                                Err(err) => println!("Error: {}", err),
+                                Ok(None) => println!("no"),
+                                Ok(Some(witness)) => println!("yes ({})", witness),
+                            }
                         } else if command == "actions" {
                             let actions: Vec<&String> = self.universe.actions().collect();
                             println!("{}", actions.iter().map(|x| x.as_str()).collect::<Vec<&str>>().join(" "));

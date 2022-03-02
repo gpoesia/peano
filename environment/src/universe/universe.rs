@@ -161,6 +161,17 @@ impl Universe {
         }
     }
 
+    pub fn inhabited(&self, term_type: &Rc<Term>) -> Option<String> {
+        for (name, defs) in self.context.definitions.iter() {
+            let last_def = &defs[defs.len() - 1];
+            if term_type == &last_def.dtype {
+                return Some(name.clone())
+            }
+        }
+
+        None
+    }
+
     pub fn to_png(&self, path: impl AsRef<Path>) -> Result<(), io::Error> {
         self.egraph.dot().to_png(path)
     }
