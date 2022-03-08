@@ -1,15 +1,15 @@
 use std::option::Option;
 use std::rc::Rc;
 use std::collections::hash_set::Iter;
+use std::collections::hash_map::HashMap;
 use std::io;
 use std::path::Path;
 
 use egg::*;
 use super::term::{Context, Term, Definition};
 
-const OPAQUE_NODE : &str = &"$opaque";
 const IS_NODE: &str = &"$is";
-const DECL_NODE: &str = &"$decl";
+const PARAM_NODE: &str = &"$param";
 const ARROW_NODE: &str = &"$arrow";
 const APPLY_NODE: &str = &"$app";
 const LAMBDA_NODE: &str = &"$lambda";
@@ -22,17 +22,7 @@ pub struct Universe {
 
 impl Universe {
     pub fn new() -> Universe {
-        let mut u = Universe {
-            egraph: Default::default(),
-            id_counter: 0,
-            context: Context::new()
-        };
-
-        for s in [OPAQUE_NODE, IS_NODE, DECL_NODE] {
-            u.egraph.add(SymbolLang::leaf(s));
-        }
-
-        u
+        Universe { egraph: Default::default(), context: Context::new(), id_counter: 0 }
     }
 
     pub fn size(&self) -> usize {
@@ -55,11 +45,11 @@ impl Universe {
 
         let decl = Rc::new(Term::Declaration { name: name, dtype: def.dtype });
 
-        let decl_id = self.add_term(&decl);
+        let decl_id = self.add_term(&decl, false);
 
         if let Some(value) = def.value {
-            let value_id = self.add_term(&value);
-            self.egraph.union(decl_id, value_id);
+            let value_id = self.add_term(&value, false);
+            self.egraph.union(self.egraph[decl_id].nodes[0].children[0], value_id);
         }
 
         self.egraph.rebuild();
@@ -79,14 +69,23 @@ impl Universe {
         }
     }
 
-    fn add_term(&mut self, t: &Rc<Term>) -> Id {
+    fn add_term(&mut self, t: &Rc<Term>, is_param: bool) -> Id {
         match t.as_ref() {
             Term::Declaration{ name, dtype } => {
-                let type_id = self.add_term(dtype);
-                let name_id = self.egraph.add(SymbolLang::leaf(&name));
-                self.egraph.add(SymbolLang::new(IS_NODE, vec![name_id, type_id]));
+                if !is_param {
+                    // Equality objects are dematerialized and translate to a merge in the e-graph.
+                    if let Some((t1, t2)) = dtype.extract_equality() {
+                        let t1_id = self.add_term(&t1, false);
+                        let t2_id = self.add_term(&t2, false);
+                        self.egraph.union(t1_id, t2_id);
+                        return t1_id
+                    }
+                }
 
-                name_id
+                let type_id = self.add_term(dtype, false);
+                let name_id = self.egraph.add(SymbolLang::leaf(&name));
+                self.egraph.add(SymbolLang::new(if is_param { PARAM_NODE } else { IS_NODE },
+                                                vec![name_id, type_id]))
             },
             Term::Atom { name } => {
                 self.egraph.add(SymbolLang::leaf(name))
@@ -94,28 +93,28 @@ impl Universe {
             Term::Arrow { input_types, output_type } => {
                 let mut v = Vec::new();
                 for t in input_types.iter() {
-                    v.push(self.add_term(&t));
+                    v.push(self.add_term(&t, true));
                 }
-                v.push(self.add_term(&output_type));
+                v.push(self.add_term(&output_type, true));
                 self.egraph.add(SymbolLang::new(ARROW_NODE, v))
             },
             Term::Lambda { parameters, body } => {
                 let mut v = Vec::new();
                 for t in parameters.iter() {
-                    v.push(self.add_term(&t));
+                    v.push(self.add_term(&t, true));
                 }
-                v.push(self.add_term(&body));
+                v.push(self.add_term(&body, false));
                 self.egraph.add(SymbolLang::new(LAMBDA_NODE, v))
             },
             Term::Application { function, arguments } => {
                 let type_expr = &t.get_type(&self.context);
-                let type_id = self.add_term(type_expr);
+                let type_id = self.add_term(type_expr, false);
 
                 let mut v = Vec::new();
-                v.push(self.add_term(&function));
+                v.push(self.add_term(&function, false));
 
                 for t in arguments.iter() {
-                    v.push(self.add_term(&t));
+                    v.push(self.add_term(&t, false));
                 }
 
                 let app_id = self.egraph.add(SymbolLang::new(APPLY_NODE, v));
@@ -248,9 +247,213 @@ impl Universe {
     }
 }
 
+// Returns the list of e-classes in topological order (leaves first);
+fn topologically_sort_eclasses(egraph: &EGraph<SymbolLang, ()>) -> Vec<Id> {
+    let mut dependents = HashMap::<Id, Vec<Id>>::new();
+    let mut n_dependencies = HashMap::<Id, usize>::new();
+
+    for eclass in egraph.classes() {
+        for node in eclass.nodes.iter() {
+            for dep in node.children.iter() {
+                if *dep != eclass.id {
+                    *(n_dependencies.entry(eclass.id).or_default()) += 1;
+                    dependents.entry(*dep).or_default().push(eclass.id);
+                }
+            }
+        }
+    }
+
+    let mut free = Vec::new();
+
+    for eclass in egraph.classes() {
+        if n_dependencies.get(&eclass.id).is_none() {
+            free.push(eclass.id);
+        }
+    }
+
+    let mut eclasses_in_topological_order = Vec::<Id>::new();
+
+    while free.len() > 0 {
+        let next = free.pop().unwrap();
+        eclasses_in_topological_order.push(next);
+
+        if let Some(deps) = dependents.get(&next) {
+            for r_dep in deps.iter() {
+                n_dependencies.entry(*r_dep).and_modify(|cnt| {
+                    *cnt -= 1;
+                    if *cnt == 0 {
+                        free.push(*r_dep);
+                    }
+                });
+            }
+        }
+    }
+
+    eclasses_in_topological_order
+}
+
+#[derive(Default)]
+struct EClassTerms {
+    name: String,
+    values: Vec<Rc<Term>>,
+    expressions: Vec<Rc<Term>>,
+    declaration: Option<Rc<Term>>,
+    definition: Option<Rc<Term>>,
+    min_size: usize,
+}
+
+impl EClassTerms {
+    pub fn get_name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn is_intermediary_node(&self) -> bool {
+        self.name.starts_with("!sub")
+    }
+
+    pub fn set_intermediary_name(&mut self, id: usize) {
+        self.name = format!("!sub{}", id);
+    }
+
+    pub fn get_value(&self) -> &Rc<Term> {
+        &self.values[0]
+    }
+
+    pub fn get_expression(&self) -> &Rc<Term> {
+        &self.expressions[0]
+    }
+
+    pub fn get_declaration(&self) -> &Rc<Term> {
+        self.declaration.as_ref().unwrap()
+    }
+
+    pub fn canonical_representer(&self) -> Rc<Term> {
+        // If any constant is associated with this node, return one of them.
+        if self.values.len() > 0 {
+            return self.values[0].clone();
+        }
+
+        match &self.declaration {
+            Some(d) => d.clone(),
+            None => {
+                if self.is_intermediary_node() {
+                    self.expressions[0].clone()
+                } else {
+                    Rc::new(Term::Atom { name: self.name.clone() })
+                }
+            }
+        }
+    }
+
+    pub fn canonical_value(&self) -> Option<Rc<Term>> {
+        // If any constant is associated with this node, return one of them.
+        if self.values.len() > 0 {
+            return Some(self.values[0].clone());
+        }
+
+        return self.expressions.get(0).map(|e| e.clone());
+    }
+
+    pub fn alternative_values(&self) -> Vec<Rc<Term>> {
+        if self.values.len() > 0 {
+            return self.values[1..].iter().map(|v| v.clone())
+                                          .chain(self.expressions.iter().map(|v| v.clone()))
+                                          .collect();
+        }
+        self.expressions[1..].iter().map(|v| v.clone()).collect()
+    }
+}
+
+fn extract_context_from_egraph(egraph: &EGraph<SymbolLang, ()>) -> Context {
+    // 1- Topologically sort e-classes.
+    let eclasses = topologically_sort_eclasses(egraph);
+
+    // 2- For each e-class, gather (a) names, (b) constants, (c) expressions
+    let mut next_id = 0;
+
+    let mut eterms : HashMap<Id, EClassTerms> = HashMap::new();
+    let mut c = Context::new();
+
+    for id in eclasses.iter() {
+        let eclass = &egraph[*id];
+        let mut terms : EClassTerms = Default::default();
+        terms.set_intermediary_name(next_id);
+        next_id += 1;
+
+        for node in &eclass.nodes {
+            let op = node.op.as_str();
+
+            // Decide where to put this child: name, value or expression?
+            if op == LAMBDA_NODE {
+                // lambdas are irreducible values.
+                let n_params = node.children.len() - 1;
+                terms.values.push(Rc::new(Term::Lambda {
+                    parameters: node.children[0..n_params].iter()
+                                                          .map(|id| eterms[id].canonical_representer())
+                                                          .collect(),
+                    body: eterms[&node.children[n_params]].canonical_representer(),
+                }))
+            } else if op == APPLY_NODE {
+                terms.expressions.push(Rc::new(Term::Application {
+                    function: eterms[&node.children[0]].canonical_representer(),
+                    arguments: node.children[1..].iter().map(|id| eterms[id].canonical_representer()).collect(),
+                }))
+            } else if op == ARROW_NODE {
+                terms.expressions.push(Rc::new(Term::Arrow {
+                    input_types: node.children[0..node.len() - 1].iter().map(|id| eterms[id].canonical_representer()).collect(),
+                    output_type: eterms[&node.children[node.len() - 1]].canonical_representer(),
+                }))
+            } else if op == IS_NODE || op == PARAM_NODE {
+                let decl_node = &eterms[&node.children[0]];
+                let dtype_node = &eterms[&node.children[1]];
+
+                terms.declaration = Some(Rc::new(Term::Declaration {
+                    name: decl_node.name.clone(),
+                    dtype: dtype_node.canonical_representer(),
+                }));
+
+                // 3- For each named declaration e-class, add it to the context.
+                if op == IS_NODE {
+                    let canonical_value = decl_node.canonical_value();
+                    c.define(decl_node.name.clone(),
+                             Definition { dtype: dtype_node.canonical_representer(),
+                                          value: canonical_value.clone() });
+
+                    // If the node's e-class has alternative equal values, materialize the
+                    // equality in the context with new equality objects.
+                    if let Some(cv) = canonical_value {
+                        for v in decl_node.alternative_values() {
+                            c.define(format!("eq{}", next_id),
+                                     Definition { dtype: Term::make_equality_object(cv.clone(),
+                                                                                    v.clone()),
+                                                  value: None });
+                        }
+                    }
+                }
+            } else {
+                match op.parse::<i64>() {
+                    Ok(_) => {
+                        // It's a number, add to values.
+                        terms.values.push(Rc::new(Term::Atom { name: op.to_string() }))
+                    }
+                    Err(_) => {
+                        // It's a name, set as name (will make it a non-intermediary node).
+                        terms.name = op.to_string();
+                    }
+                }
+            }
+        }
+
+        eterms.insert(*id, terms);
+    }
+
+    c
+}
+
+#[cfg(test)]
 pub mod tests {
-    use crate::universe::Universe;
-    use crate::universe::{Context, Term, Definition};
+    use crate::universe::{Universe, Context, Term, Definition};
+    use crate::universe::universe::extract_context_from_egraph;
     use std::rc::Rc;
 
     #[test]
@@ -286,28 +489,65 @@ pub mod tests {
         u.define("z".to_string(), Definition::new_opaque(Rc::new("nat".parse().unwrap())), false);
         u.define("s".to_string(), Definition::new_opaque(Rc::new("[nat -> nat]".parse().unwrap())), false);
 
-        u.dot("s0.png");
+        // u.to_png("s0.png").unwrap();
 
         u.apply(&"s".to_string());
 
-        u.dot("s1.png");
+        // u.to_png("s1.png").unwrap();
 
         u.apply(&"s".to_string());
 
-        u.dot("s2.png");
+        // u.to_png("s2.png").unwrap();
 
         u.apply(&"s".to_string());
 
-        u.dot("s3.png");
+        // u.to_png("s3.png").unwrap();
 
         u.apply(&"s".to_string());
 
-        u.dot("s4.png");
+        // u.to_png("s4.png").unwrap();
 
         u.apply(&"s".to_string());
 
-        u.dot("s5.png");
+        // u.to_png("s5.png").unwrap();
+        // FIXME test things here.
+    }
 
-        assert_eq!(true, false);
+    #[test]
+    fn test_context_from_egraph() {
+        let nat_theory : Context = "
+nat : type.
+z : nat.
+s : [nat -> nat].
+plus : [nat -> nat -> nat].
+
+one : nat = (s z).
+two : nat = (s one).
+three : nat = 3.
+
+twice : [nat -> nat] = lambda (n : nat) (plus n n).
+five : nat = (plus (plus two two) one).
+ten : nat = (twice five).
+
+_1 : (= (plus two two) 4).
+_2 : (= (plus 4 one) 5).
+_3 : (= (twice 5) 10).
+
+leq : [nat -> nat -> prop].
+leq_n_n : [(n : nat) -> (leq n n)].
+leq_n_sn : [(n : nat) -> (leq n (s n))].
+leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (leq n o)].
+".parse().unwrap();
+
+        let mut u = Universe::new();
+        u.incorporate(&nat_theory);
+
+        // u.to_png("u.png").unwrap();
+
+        let egraph = u.egraph;
+        let context = extract_context_from_egraph(&egraph);
+
+        // FIXME add automated test instead of just looking at the output below.
+        // println!("Extracted context: \n{}", context.to_string());
     }
 }

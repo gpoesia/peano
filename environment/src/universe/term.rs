@@ -361,6 +361,27 @@ impl Term {
             },
         }
     }
+
+    pub fn extract_equality(self: &Rc<Term>) -> Option<(Rc<Term>, Rc<Term>)> {
+        if let Term::Application { function, arguments } = self.as_ref() {
+            if let Term::Atom { name } = function.as_ref() {
+                if name == "=" {
+                    assert_eq!(arguments.len(), 2,
+                               "Equality used as a non-binary relation.");
+                    return Some((arguments[0].clone(), arguments[1].clone()));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn make_equality_object(t1: Rc<Term>, t2: Rc<Term>) -> Rc<Term> {
+        Rc::new(
+            Term::Application {
+                function: Rc::new(Term::Atom { name: "=".to_string() }),
+                arguments: vec![t1.clone(), t2.clone()],
+            })
+    }
 }
 
 impl FromStr for Term {
