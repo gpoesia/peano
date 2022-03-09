@@ -165,8 +165,6 @@ impl Universe {
         let query: egg::Pattern<SymbolLang> = format!("({} ?var {})", IS_NODE, term_type.to_pattern())
                                               .as_str().parse().unwrap();
 
-        println!("Pattern: {}", query);
-
         let matches = query.search(&self.egraph);
 
         if matches.len() == 0 {
@@ -215,9 +213,10 @@ impl Universe {
         // FIXME this can be optimized in a number of ways (e.g., lookup table if type is atomic).
         for (name, defs) in self.context.definitions.iter() {
             let last_def = &defs[defs.len() - 1];
-            // FIXME we likely need to be careful here about what notion of equality to apply here.
-            // For now we just conservatively check if their term structure is identical.
-            if param_type == last_def.dtype {
+            // FIXME this is *very* expensive: we should find a way to get around using the e-graph by
+            // canonizaling terms in some way. At the very least we can cache the e-classes of the types
+            // of terms in the context and just use half of the queries in `are_equivalent`.
+            if self.are_equivalent(&param_type, &last_def.dtype) {
                 // Can use this as an argument.
                 let val = Rc::new(Term::Atom { name: name.clone() }).eval(&self.context);
                 inputs.push(val);
@@ -253,6 +252,25 @@ impl Universe {
                 inputs.pop();
             }
         }
+    }
+
+    fn are_equivalent(&self, t1: &Rc<Term>, t2: &Rc<Term>) -> bool {
+        let q1: egg::Pattern<SymbolLang> = t1.to_pattern().as_str().parse().unwrap();
+        let m1 = q1.search(&self.egraph);
+
+        if m1.len() == 0 {
+            return t1 == t2;
+        }
+
+        let q2: egg::Pattern<SymbolLang> = t2.to_pattern().as_str().parse().unwrap();
+
+        let m2 = q2.search(&self.egraph);
+
+        if m2.len() == 0 {
+            return t1 == t2;
+        }
+
+        return self.egraph.find(m1[0].eclass) == self.egraph.find(m2[0].eclass);
     }
 
     pub fn dump_context(&self) -> String {
