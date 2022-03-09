@@ -161,10 +161,23 @@ impl Universe {
     }
 
     pub fn inhabited(&self, term_type: &Rc<Term>) -> Option<String> {
-        for (name, defs) in self.context.definitions.iter() {
-            let last_def = &defs[defs.len() - 1];
-            if term_type == &last_def.dtype {
-                return Some(name.clone())
+        let var = "?var".parse::<egg::Var>().unwrap();
+        let query: egg::Pattern<SymbolLang> = format!("({} ?var {})", IS_NODE, term_type.to_pattern())
+                                              .as_str().parse().unwrap();
+
+        println!("Pattern: {}", query);
+
+        let matches = query.search(&self.egraph);
+
+        if matches.len() == 0 {
+            return None;
+        }
+
+        for m in matches.iter() {
+            for n in self.egraph[m.substs[0][var]].nodes.iter() {
+                if n.is_leaf() {
+                    return Some(n.to_string());
+                }
             }
         }
 
@@ -245,6 +258,10 @@ impl Universe {
     pub fn dump_context(&self) -> String {
         self.context.to_string()
     }
+
+    pub fn canonicalize_equal_terms(&mut self) {
+        self.context = extract_context_from_egraph(&self.egraph);
+    }
 }
 
 // Returns the list of e-classes in topological order (leaves first);
@@ -298,33 +315,15 @@ struct EClassTerms {
     values: Vec<Rc<Term>>,
     expressions: Vec<Rc<Term>>,
     declaration: Option<Rc<Term>>,
-    definition: Option<Rc<Term>>,
-    min_size: usize,
 }
 
 impl EClassTerms {
-    pub fn get_name(&self) -> &String {
-        &self.name
-    }
-
     pub fn is_intermediary_node(&self) -> bool {
         self.name.starts_with("!sub")
     }
 
     pub fn set_intermediary_name(&mut self, id: usize) {
         self.name = format!("!sub{}", id);
-    }
-
-    pub fn get_value(&self) -> &Rc<Term> {
-        &self.values[0]
-    }
-
-    pub fn get_expression(&self) -> &Rc<Term> {
-        &self.expressions[0]
-    }
-
-    pub fn get_declaration(&self) -> &Rc<Term> {
-        self.declaration.as_ref().unwrap()
     }
 
     pub fn canonical_representer(&self) -> Rc<Term> {
@@ -549,5 +548,36 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
 
         // FIXME add automated test instead of just looking at the output below.
         // println!("Extracted context: \n{}", context.to_string());
+    }
+
+    #[test]
+    fn test_composite_type_inhabited() {
+        let nat_theory : Context = "
+nat : type.
+z : nat.
+s : [nat -> nat].
+
+leq : [nat -> nat -> prop].
+leq_n_sn : [(n : nat) -> (leq n (s n))].
+leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (leq n o)].
+".parse().unwrap();
+
+        let mut u = Universe::new();
+        u.incorporate(&nat_theory);
+
+        u.apply(&"s".to_string());
+        u.apply(&"s".to_string());
+        u.apply(&"s".to_string());
+        u.apply(&"leq_n_sn".to_string());
+        u.apply(&"leq_trans".to_string());
+        u.apply(&"leq_trans".to_string());
+
+        assert!(u.inhabited(&Rc::new("nat".parse().unwrap())).is_some());
+        assert!(u.inhabited(&Rc::new("(leq z (s z))".parse().unwrap())).is_some());
+        assert!(u.inhabited(&Rc::new("(leq (s z) (s (s (s z))))".parse().unwrap())).is_some());
+
+        // assert!(u.inhabited(&Rc::new("nat".parse().unwrap())).is_some());
+        // assert!(u.inhabited(&Rc::new("(leq z (s z))".parse().unwrap())).is_some());
+        // assert!(u.inhabited(&Rc::new("(leq (s z) (s (s (s z))))".parse().unwrap())).is_some());
     }
 }

@@ -429,6 +429,67 @@ impl fmt::Display for Term {
     }
 }
 
+impl Term {
+    pub fn to_pattern(&self) -> String {
+        let mut s = String::new();
+        self.write_pattern_string(&mut s);
+        s
+    }
+
+    fn write_pattern_string(&self, s: &mut String) {
+        match self {
+            Term::Atom { name } => { s.push_str(name.as_str()); },
+            Term::Declaration { name, dtype } => {
+                s.push_str("($is ");
+                s.push_str(name.as_str());
+                s.push_str(" ");
+                dtype.write_pattern_string(s);
+                s.push_str(")");
+            },
+            Term::Arrow { input_types, output_type } => {
+                s.push_str("($arrow");
+                for t in input_types.iter() {
+                    match t.as_ref() {
+                        Term::Declaration { name, dtype } => {
+                            s.push_str(" ($param ");
+                            s.push_str(name.as_str());
+                            s.push_str(" ");
+                            dtype.write_pattern_string(s);
+                            s.push_str(")");
+                        },
+                        _ => {
+                            s.push_str(" ");
+                            t.write_pattern_string(s);
+                        },
+                    };
+                }
+                s.push_str(" ");
+                output_type.write_pattern_string(s);
+                s.push_str(")");
+            },
+            Term::Application { function, arguments } => {
+                s.push_str("($app ");
+                function.write_pattern_string(s);
+                for a in arguments.iter() {
+                    s.push_str(" ");
+                    a.write_pattern_string(s);
+                }
+                s.push_str(")");
+            },
+            Term::Lambda { parameters, body } => {
+                s.push_str("($lambda");
+                for (i, p) in parameters.iter().enumerate() {
+                    s.push_str(" ");
+                    p.write_pattern_string(s);
+                }
+                s.push_str(" ");
+                body.write_pattern_string(s);
+                s.push_str(")");
+            },
+        }
+    }
+}
+
 pub mod tests {
     #![allow(unused_imports)]
     use std::rc::Rc;

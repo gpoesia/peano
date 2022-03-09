@@ -91,6 +91,7 @@ impl Shell {
                             }
                         } else if command == "apply" {
                             self.universe.apply(&args.to_string());
+                            self.universe.canonicalize_equal_terms();
                             println!("{}", self.universe.dump_context());
                         } else if command == "inhabited" {
                             match self.is_inhabited(&args) {
