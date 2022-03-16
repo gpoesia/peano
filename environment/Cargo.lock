@@ -112,7 +112,7 @@ dependencies = [
  "instant",
  "log",
  "once_cell",
- "smallvec",
+ "smallvec 1.8.0",
  "symbolic_expressions",
  "thiserror",
 ]
@@ -288,7 +288,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77a5d83df9f36fe23f0c3648c6bbb8b0298bb5f1939c8f2704431371f4b84d43"
 dependencies = [
- "smallvec",
+ "smallvec 1.8.0",
 ]
 
 [[package]]
@@ -324,6 +324,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "rustyline",
+ "smallset",
  "tempfile",
 ]
 
@@ -457,7 +458,7 @@ dependencies = [
  "nix",
  "radix_trie",
  "scopeguard",
- "smallvec",
+ "smallvec 1.8.0",
  "unicode-segmentation",
  "unicode-width",
  "utf8parse",
@@ -481,6 +482,21 @@ dependencies = [
  "fake-simd",
  "opaque-debug",
 ]
+
+[[package]]
+name = "smallset"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f428a8707c0e10637f43f8065377cae75407eba742609d08f2b2b398ad8ef99a"
+dependencies = [
+ "smallvec 0.1.8",
+]
+
+[[package]]
+name = "smallvec"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc8d19212aacecf95e4a7a2179b26f7aeb9732a915cf01f05b0d3e044865410"
 
 [[package]]
 name = "smallvec"

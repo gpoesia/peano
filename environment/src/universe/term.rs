@@ -9,12 +9,21 @@ use core::str::FromStr;
 use pest::Parser;
 use pest::iterators::Pair;
 use pest::error::{Error as PestError};
+use smallset::SmallSet;
+
+use egg::{RecExpr, SymbolLang};
 
 const TYPE: &str = "type";
 
+// Prefix added to the names of all lambda and arrow parameters.
+// This is used to simplify the test of whether a term has free variables.
+const PARAMETER_PREFIX: &str = "$";
+type VarSet = SmallSet<[String; 5]>;
+
 pub struct Context {
     type_const: Rc<Term>, // The global constant `type` used to define other types.
-    pub definitions: HashMap<String, Vec<Definition>>, // Map of names to definitions.
+    definitions: HashMap<String, Vec<Definition>>, // Map of names to definitions.
+    pub insertion_order: Vec<String>, // Order in which definitions were added.
     arrows: HashSet<String>, // Set of global definitions that are arrows.
 }
 
@@ -43,6 +52,7 @@ impl Context {
         let type_const = Rc::new(Term::Atom { name: TYPE.to_string() });
         let type_const_def = Definition { dtype: type_const.clone(), value: None };
         let mut c = Context { definitions: HashMap::new(),
+                              insertion_order: Vec::new(),
                               type_const: type_const.clone(),
                               arrows: HashSet::new() };
         c.definitions.insert(TYPE.to_string(), vec![type_const_def]);
@@ -64,6 +74,7 @@ impl Context {
         if let Some(v) = self.definitions.get_mut(&name) {
             v.push(def);
         } else {
+            self.insertion_order.push(name.clone());
             self.definitions.insert(name, vec!(def));
         }
     }
@@ -77,21 +88,40 @@ impl Context {
             let idx = v.len() - 1;
             v[idx] = def;
         } else {
+            self.insertion_order.push(name.clone());
             self.definitions.insert(name, vec!(def));
         }
     }
 
+    // Sets a new value to a previously defined name.
+    // FIXME This should not change its type, although that is not checked here.
+    pub fn set(&mut self, name: &String, value: Rc<Term>) {
+        if let Some(v) = self.definitions.get_mut(name) {
+            let idx = v.len() - 1;
+            v[idx].value = Some(value);
+        }
+    }
 
     pub fn actions(&self) -> Iter<'_, String> {
         self.arrows.iter()
     }
 
     pub fn destroy(&mut self, name: &String) {
-        if let Some(v) = self.definitions.get_mut(name) {
-            if v.len() > 0 {
+        /* if let Some(v) = self.definitions.get_mut(name) {
+            if v.len() > 1 {
                 v.pop();
+                return;
             }
-        }
+        } */
+        self.definitions.remove(name);
+    }
+
+    // Removes objects from insertion_order that have been destroied, to speed-up iteration.
+    pub fn rebuild(&mut self) {
+        self.insertion_order = self.insertion_order
+                                   .drain(0..)
+                                   .filter(|p| self.definitions.contains_key(p))
+                                   .collect();
     }
 
     pub fn get_type_constant(&self) -> &Rc<Term> {
@@ -120,7 +150,9 @@ impl FromStr for Context {
             }
 
             let mut sub : Vec<Pair<Rule>> = def_rule.into_inner().collect();
-            let mut children : Vec<Rc<Term>> = sub.drain(0..).map(|p| parse_term(p)).collect();
+            let mut children : Vec<Rc<Term>> = sub.drain(0..)
+                                                  .map(|p| parse_term(p, &mut HashMap::new()))
+                                                  .collect();
             let value = if children.len() == 2 { children.pop() } else { None };
 
             if let Term::Declaration { name, dtype } = children[0].as_ref() {
@@ -139,16 +171,16 @@ impl ToString for Context {
 
         s.push_str(format!("// {} definitions.\n", self.definitions.len()).as_str());
 
-        for (name, defs) in self.definitions.iter() {
-            let last_def = &defs[defs.len() - 1];
+        for name in self.insertion_order.iter() {
+            if let Some(def) = self.lookup(&name) {
+                s += &format!("{} : {}", name, def.dtype);
 
-            s += &format!("{} : {}", name, last_def.dtype);
+                if let Some(val) = &def.value {
+                    s += &format!(" = {}", val.to_string());
+                }
 
-            if let Some(val) = &last_def.value {
-                s += &format!(" = {}", val.to_string());
+                s.push_str(".\n")
             }
-
-            s.push_str(".\n")
         }
         s
     }
@@ -164,23 +196,53 @@ pub enum Term {
     Application { function: Rc<Term>, arguments: Vec<Rc<Term>> },
 }
 
-fn parse_term(pair: Pair<Rule>) -> Rc<Term> {
+fn rename_param_declaration(t: &mut Rc<Term>) -> Option<String> {
+    let (name, dtype) = match t.as_ref() {
+        Term::Declaration { name, dtype } => (name.clone(), dtype.clone()),
+        _ => { return None },
+    };
+
+    *t = Rc::new(Term::Declaration { name: format!("{}{}", PARAMETER_PREFIX, name),
+                                     dtype: dtype });
+
+    Some(name)
+}
+
+fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -> Rc<Term> {
     let rule = pair.as_rule();
     let s = pair.as_str();
     let mut sub : Vec<Pair<Rule>> = pair.into_inner().collect();
 
     match rule {
         Rule::lambda => {
-            let mut children : Vec<Rc<Term>> = sub.drain(0..).map(|p| parse_term(p)).collect();
-            let body = children.pop().unwrap();
+            let mut params : Vec<Rc<Term>> = Vec::new(); // sub.drain(0..sub.len() - 1).map(|p| parse_term(p, decls)).collect();
+            let mut param_names : Vec<String> = Vec::new();
 
-            return Rc::new(Term::Lambda {
-                parameters: children,
+            for s in sub.drain(0..sub.len() - 1) {
+                let mut p = parse_term(s, decls);
+                if let Some(name) = rename_param_declaration(&mut p) {
+                    param_names.push(name.clone());
+                    *decls.entry(name).or_insert(0) += 1;
+                }
+                params.push(p);
+            }
+
+            let body = parse_term(sub.pop().unwrap(), decls);
+
+            // Append special prefix to all lambda parameters.
+            let t = Rc::new(Term::Lambda {
+                parameters: params,
                 body: body,
             });
+
+            for p in param_names {
+                *decls.get_mut(&p).unwrap() -= 1;
+            }
+
+            t
         },
         Rule::declaration => {
-            let mut children : Vec<Rc<Term>> = sub.drain(0..).map(parse_term).collect();
+            let mut children : Vec<Rc<Term>> = sub.drain(0..).map(|p| parse_term(p, decls)).collect();
             assert_eq!(children.len(), 2, "Declaration should have two children: atom and type.");
             let dtype = children.pop().unwrap();
             let atom = children.pop().unwrap();
@@ -191,16 +253,35 @@ fn parse_term(pair: Pair<Rule>) -> Rc<Term> {
             }
         },
         Rule::atom => {
-            Rc::new(Term::Atom { name: s.to_string() })
+            Rc::new(Term::Atom { name: format!("{}{}",
+                                               if *decls.get(s).unwrap_or(&0) > 0 { PARAMETER_PREFIX }
+                                               else { "" },
+                                               s) })
         },
         Rule::arrow => {
-            let input_types : Vec<Rc<Term>> = sub.drain(0..(sub.len() - 1)).map(parse_term).collect();
-            let output_type = parse_term(sub.pop().unwrap());
+            let mut input_types : Vec<Rc<Term>> = Vec::new();
+            let mut param_names : Vec<String> = Vec::new();
+
+            for s in sub.drain(0..sub.len() - 1) {
+                let mut p = parse_term(s, decls);
+                if let Some(name) = rename_param_declaration(&mut p) {
+                    param_names.push(name.clone());
+                    *decls.entry(name).or_insert(0) += 1;
+                }
+                input_types.push(p);
+            }
+
+            let output_type = parse_term(sub.pop().unwrap(), decls);
+
+            for p in param_names {
+                *decls.get_mut(&p).unwrap() -= 1;
+            }
+
             Rc::new(Term::Arrow { input_types, output_type })
         },
         Rule::application => {
-            let arguments : Vec<Rc<Term>> = sub.drain(1..).map(parse_term).collect();
-            let function = parse_term(sub.pop().unwrap());
+            let arguments : Vec<Rc<Term>> = sub.drain(1..).map(|p| parse_term(p, decls)).collect();
+            let function = parse_term(sub.pop().unwrap(), decls);
             Rc::new(Term::Application { function, arguments })
         },
         _ => unreachable!(),
@@ -210,6 +291,46 @@ fn parse_term(pair: Pair<Rule>) -> Rc<Term> {
 impl Term {
     pub fn rc(&self) -> Rc<Term> {
         Rc::new(self.clone())
+    }
+
+    pub fn free_variables(self: &Rc<Term>) -> VarSet {
+        match self.as_ref() {
+            Term::Declaration { name: _, dtype } => dtype.free_variables(),
+            Term::Atom { name } => {
+                if name.starts_with(PARAMETER_PREFIX) {
+                    SmallSet::from_iter([name.clone()])
+                } else {
+                    SmallSet::new()
+                }
+            },
+            Term::Application { function, arguments } => {
+                let mut s = function.free_variables();
+                for a in arguments {
+                    for p in a.free_variables().iter() {
+                        s.insert(p.clone());
+                    }
+                }
+                s
+            },
+            Term::Arrow { input_types, output_type } => {
+                let mut s = output_type.free_variables();
+                for t in input_types {
+                    if let Term::Declaration { name, dtype: _ } = t.as_ref() {
+                        s.remove(&name);
+                    }
+                }
+                s
+            },
+            Term::Lambda { parameters, body } => {
+                let mut s = body.free_variables();
+                for t in parameters {
+                    if let Term::Declaration { name, dtype: _ } = t.as_ref() {
+                        s.remove(&name);
+                    }
+                }
+                s
+            }
+        }
     }
 
     pub fn get_type(self: &Rc<Term>, ctx: &Context) -> Rc<Term> {
@@ -389,20 +510,22 @@ impl FromStr for Term {
 
     fn from_str(s : &str) -> Result<Term, PestError<Rule>> {
         let root = TermParser::parse(Rule::term, s)?.next().unwrap();
-        Ok(Rc::try_unwrap(parse_term(root)).unwrap())
+        Ok(Rc::try_unwrap(parse_term(root, &mut HashMap::new())).unwrap())
     }
 }
 
 impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Term::Atom { name } => write!(f, "{}", name),
-            Term::Declaration { name, dtype } => write!(f, "{} : {}", name, dtype),
+            Term::Atom { name } => write!(f, "{}",
+                                          if name.starts_with(PARAMETER_PREFIX) { &name[0..] }
+                                          else { &name[0..] }),
+            Term::Declaration { name, dtype } => write!(f, "{} : {}", &name[0..], dtype),
             Term::Arrow { input_types, output_type } => {
                 write!(f, "[")?;
                 for t in input_types.iter() {
                     match t.as_ref() {
-                        Term::Declaration { name, dtype } => write!(f, "({} : {}) -> ", name, dtype),
+                        Term::Declaration { name, dtype } => write!(f, "({} : {}) -> ", &name[0..], dtype),
                         _ => write!(f, "{} -> ", t),
                     }?;
                 }
@@ -434,6 +557,11 @@ impl Term {
         let mut s = String::new();
         self.write_pattern_string(&mut s);
         s
+    }
+
+    pub fn to_recexpr(&self) -> RecExpr<SymbolLang> {
+        // This is a naïve implementation, but works for now.
+        RecExpr::from_str(self.to_pattern().as_str()).unwrap()
     }
 
     fn write_pattern_string(&self, s: &mut String) {
@@ -478,7 +606,7 @@ impl Term {
             },
             Term::Lambda { parameters, body } => {
                 s.push_str("($lambda");
-                for (i, p) in parameters.iter().enumerate() {
+                for p in parameters.iter() {
                     s.push_str(" ");
                     p.write_pattern_string(s);
                 }
@@ -488,6 +616,10 @@ impl Term {
             },
         }
     }
+}
+
+pub fn is_parameter_name(name: &str) -> bool {
+    return name.starts_with(PARAMETER_PREFIX);
 }
 
 pub mod tests {

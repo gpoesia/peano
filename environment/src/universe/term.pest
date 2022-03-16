@@ -1,6 +1,6 @@
 // Terms grammar
 
-context = { SOI ~ definition* }
+context = { SOI ~ definition* ~ EOI }
 
 term = _{ lambda | application | atom | arrow }
 

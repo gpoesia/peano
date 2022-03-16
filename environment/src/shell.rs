@@ -41,7 +41,7 @@ impl Shell {
                     },
                     Ok(ctx) => {
                         self.universe.incorporate(&ctx);
-                        Ok(ctx.definitions.len())
+                        Ok(ctx.insertion_order.len())
                     }
                 }
             }
@@ -62,6 +62,13 @@ impl Shell {
         match type_str.parse::<Term>() {
             Err(e) => Err(e.to_string()),
             Ok(t) => Ok(self.universe.inhabited(&Rc::new(t))),
+        }
+    }
+
+    pub fn value_of(&self, t: &str) -> Result<Option<i64>, String> {
+        match t.parse::<Term>() {
+            Err(e) => Err(e.to_string()),
+            Ok(t) => Ok(self.universe.value_of(&Rc::new(t))),
         }
     }
 
@@ -89,15 +96,21 @@ impl Shell {
                                 Ok(n) => println!("{} definitions loaded.", n),
                                 Err(err) => println!("Error loading {}: {}", args, err)
                             }
+                            self.universe.canonicalize_equal_terms();
                         } else if command == "apply" {
                             self.universe.apply(&args.to_string());
-                            self.universe.canonicalize_equal_terms();
                             println!("{}", self.universe.dump_context());
                         } else if command == "inhabited" {
                             match self.is_inhabited(&args) {
                                 Err(err) => println!("Error: {}", err),
                                 Ok(None) => println!("no"),
                                 Ok(Some(witness)) => println!("yes ({})", witness),
+                            }
+                        } else if command == "value" {
+                            match self.value_of(&args) {
+                                Err(err) => println!("Error: {}", err),
+                                Ok(None) => println!("unknown"),
+                                Ok(Some(value)) => println!("{} = {}", args, value),
                             }
                         } else if command == "actions" {
                             let actions: Vec<&String> = self.universe.actions().collect();
