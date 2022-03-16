@@ -320,7 +320,18 @@ impl Universe {
         }
     }
 
+    // Checks if a type is inhabited in the current context, i.e., if we have any object
+    // of that type. For proof objects, this amounts to knowing whether we have a proof
+    // of the corresponding proposition. If so, returns the name of an object of the given type.
     pub fn inhabited(&self, term_type: &Rc<Term>) -> Option<String> {
+        // Equality objects are implicit in the e-graph.
+        if let Some((t1, t2)) = term_type.extract_equality() {
+            return match (self.is_represented(&t1), self.is_represented(&t2)) {
+                (id, id2) if id == id2 => Some(String::from("eq")),
+                _ => None,
+            }
+        }
+
         let var = "?var".parse::<egg::Var>().unwrap();
         let query: egg::Pattern<SymbolLang> = format!("({} ?var {})", IS_NODE, term_type.to_pattern())
                                               .as_str().parse().unwrap();

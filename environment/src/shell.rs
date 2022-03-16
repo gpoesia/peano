@@ -72,6 +72,22 @@ impl Shell {
         }
     }
 
+    pub fn check(&mut self, args: &str) -> Result<Option<String>, String> {
+        if let Some((term, actions)) = args.split_once(" by ") {
+            match term.parse::<Term>() {
+                Err(e) => { return Err(e.to_string()); },
+                Ok(t) => {
+                    for a in actions.split(" ") {
+                        self.universe.apply(&a.to_string());
+                    }
+
+                    return Ok(self.universe.inhabited(&Rc::new(t)))
+                },
+            }
+        }
+        Err(String::from("Syntax: !check <type> by <action,action,...>"))
+    }
+
     pub fn repl(&mut self) {
         let mut rl = Editor::<()>::new();
 
@@ -111,6 +127,12 @@ impl Shell {
                                 Err(err) => println!("Error: {}", err),
                                 Ok(None) => println!("unknown"),
                                 Ok(Some(value)) => println!("{} = {}", args, value),
+                            }
+                        } else if command == "check" {
+                            match self.check(&args) {
+                                Err(err) => println!("Error: {}", err),
+                                Ok(None) => println!("no"),
+                                Ok(Some(witness)) => println!("yes ({})", witness),
                             }
                         } else if command == "actions" {
                             let actions: Vec<&String> = self.universe.actions().collect();
