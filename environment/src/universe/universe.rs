@@ -35,6 +35,10 @@ impl Universe {
         self.context.get_type_constant()
     }
 
+    pub fn get_prop_constant(&self) -> &Rc<Term> {
+        self.context.get_prop_constant()
+    }
+
     pub fn define(&mut self, name: String, def: Definition, rename: bool) -> Option<Id> {
         let name = if rename {
             format!("{}{}", name, self.next_term_id())
@@ -63,7 +67,6 @@ impl Universe {
 
     // Rebuilds the e-graph and removes duplicate definitions from the context (named objects with values
     // represented in the same e-class).
-    // This is also a potential good place to implement proof irrelevance.
     pub fn rebuild(&mut self) {
         self.egraph.rebuild();
 
@@ -84,6 +87,22 @@ impl Universe {
                                 duplicates.insert(name.clone());
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        let mut proofs = HashSet::new();
+
+        for name in self.context.insertion_order.iter() {
+            if let Some(def) = self.context.lookup(&name) {
+                // If the dtype is of type proposition, check for irrelevance
+                if def.dtype.get_type(&self.context) == *self.get_prop_constant() {
+                    if let Some(id) = self.is_represented(&def.dtype) {
+                        if proofs.contains(&id) {
+                            duplicates.insert(name.clone());
+                        }
+                        proofs.insert(id);
                     }
                 }
             }
