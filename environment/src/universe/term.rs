@@ -14,6 +14,7 @@ use smallset::SmallSet;
 use egg::{RecExpr, SymbolLang};
 
 const TYPE: &str = "type";
+const PROP: &str = "prop";
 
 // Prefix added to the names of all lambda and arrow parameters.
 // This is used to simplify the test of whether a term has free variables.
@@ -22,6 +23,7 @@ type VarSet = SmallSet<[String; 5]>;
 
 pub struct Context {
     type_const: Rc<Term>, // The global constant `type` used to define other types.
+    prop_const: Rc<Term>, // The global constant `prop,` which is a type used to define propositions.
     definitions: HashMap<String, Vec<Definition>>, // Map of names to definitions.
     pub insertion_order: Vec<String>, // Order in which definitions were added.
     arrows: HashSet<String>, // Set of global definitions that are arrows.
@@ -50,12 +52,15 @@ struct TermParser;
 impl Context {
     pub fn new() -> Context {
         let type_const = Rc::new(Term::Atom { name: TYPE.to_string() });
+        let prop_const = Rc::new(Term::Atom {name: PROP.to_string() });
         let type_const_def = Definition { dtype: type_const.clone(), value: None };
         let mut c = Context { definitions: HashMap::new(),
                               insertion_order: Vec::new(),
                               type_const: type_const.clone(),
+                              prop_const: prop_const.clone(),
                               arrows: HashSet::new() };
-        c.definitions.insert(TYPE.to_string(), vec![type_const_def]);
+        c.definitions.insert(TYPE.to_string(), vec![type_const_def.clone()]);
+        c.definitions.insert(PROP.to_string(), vec![type_const_def]);
         c
     }
 
@@ -126,6 +131,10 @@ impl Context {
 
     pub fn get_type_constant(&self) -> &Rc<Term> {
         &self.type_const
+    }
+
+    pub fn get_prop_constant(&self) -> &Rc<Term> {
+        &self.prop_const
     }
 
     pub fn size(&self) -> usize {
