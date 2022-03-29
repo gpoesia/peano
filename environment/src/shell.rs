@@ -72,6 +72,12 @@ impl Shell {
         }
     }
 
+    pub fn apply(&mut self, args: &str) -> () {
+        for a in args.split(" ") {
+            self.universe.apply(&a.to_string());
+        }
+    }
+
     pub fn check(&mut self, args: &str) -> Result<Option<String>, String> {
         if let Some((term, actions)) = args.split_once(" by ") {
             match term.parse::<Term>() {
@@ -114,7 +120,7 @@ impl Shell {
                             }
                             self.universe.canonicalize_equal_terms();
                         } else if command == "apply" {
-                            self.universe.apply(&args.to_string());
+                            self.apply(args);
                             println!("{}", self.universe.dump_context());
                         } else if command == "inhabited" {
                             match self.is_inhabited(&args) {

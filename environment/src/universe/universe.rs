@@ -74,6 +74,7 @@ impl Universe {
 
         self.eclass_name.clear();
 
+        // Remove duplicate declarations from the context, populating eclass_names.
         for name in self.context.insertion_order.iter() {
             if let Some(def) = self.context.lookup(&name) {
                 if let Some(val) = &def.value {
@@ -87,6 +88,17 @@ impl Universe {
                                 duplicates.insert(name.clone());
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // Find names for remaining e-classes.
+        for eclass in self.egraph.classes() {
+            if !self.eclass_name.contains_key(&eclass.id) {
+                for node in &eclass.nodes {
+                    if node.is_leaf() {
+                        self.eclass_name.insert(eclass.id, node.op.to_string());
                     }
                 }
             }
@@ -420,19 +432,22 @@ impl Universe {
             _ => input_types[next].clone(),
         };
 
-        // Find all objects that match the desired type.
-        // FIXME this can be very heavily sped-up. One easy way to do this is to query the e-graph
-        // with ($is ?name param_type), and then lookup the name associated with the e-class that
-        // matches ?name using self.eclass_name. For any matches, we already know that they have
-        // the right type.
-        for name in self.context.insertion_order.iter() {
-            if is_parameter_name(&name) {
-                continue;
-            }
+        // Find all declarations that match the type for the next parameter.
+        let declarations_of_right_type: egg::Pattern<SymbolLang> = format!("({} ?eclass {})",
+                                                                           IS_NODE,
+                                                                           param_type.to_pattern())
+            .as_str().parse().unwrap();
+        // FIXME Cache this egg::Var.
+        let eclass_var = "?eclass".parse().unwrap();
+        let matches = declarations_of_right_type.search(&self.egraph);
 
-            if let Some(def) = self.context.lookup(&name) {
-                if self.are_equivalent(&param_type, &def.dtype) {
-                    // Can use this as an argument.
+        for m in matches {
+            let id = m.substs[0][eclass_var];
+
+            if let Some(name) = self.eclass_name.get(&id) {
+                assert!(!is_parameter_name(&name), "Parameters should never be wrapped in {} nodes", IS_NODE);
+
+                if self.context.lookup(&name).is_some() {
                     let val = Rc::new(Term::Atom { name: name.clone() }).eval(&self.context);
                     inputs.push(val);
 
