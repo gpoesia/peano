@@ -674,8 +674,8 @@ pub mod tests {
         assert!(result.is_ok());
         let context = result.unwrap();
 
-        // 3 declared above, plus `type`.
-        assert_eq!(context.size(), 3 + 1);
+        // 3 declared above, plus `type` and `prop`.
+        assert_eq!(context.size(), 3 + 2);
         assert!(context.lookup(&"type".to_string()).is_some());
 
         assert!(context.lookup(&"nat".to_string()).is_some());
