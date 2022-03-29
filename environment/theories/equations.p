@@ -1,6 +1,6 @@
 real : type.
 
-= : [(t : type) -> t -> t -> type].
+= : [(t : type) -> t -> t -> prop].
 + : [real -> real -> real].
 - : [real -> real -> real].
 * : [real -> real -> real].
@@ -12,7 +12,5 @@ real : type.
 x : real.
 y : real.
 
-x_eq : (= (+ x 3) (* 5 2)).
-y_eq : (= y (* x 2)).
-
-3 : real.
+x_eq : (= (+ x 3) 10).
+y_eq : (= y (* x x)).

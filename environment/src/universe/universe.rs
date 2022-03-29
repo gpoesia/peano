@@ -13,12 +13,20 @@ const PARAM_NODE: &str = &"$param";
 const ARROW_NODE: &str = &"$arrow";
 const APPLY_NODE: &str = &"$app";
 const LAMBDA_NODE: &str = &"$lambda";
+const REAL_TYPE_CONST: &str = &"real";
 
 pub struct Universe {
     egraph: EGraph<SymbolLang, ()>,
     context: Context,
     eclass_name: HashMap<Id, String>,
     next_id: usize,
+}
+
+// Returns whether the string contains a valid `real` constant.
+// For now, we only handle integers in built-in operations.
+// In the future, we'll have to decide what do built-in reals really mean.
+fn is_real_const(s: &str) -> bool {
+    s.parse::<i64>().is_ok()
 }
 
 impl Universe {
@@ -191,9 +199,15 @@ impl Universe {
                                                      vec![name_id, type_id])))
             },
             Term::Atom { name } => {
-                // FIXME: If this atom contains a real constant, we should add a type annotation and
-                // add it to the context.
-                Some(self.egraph.add(SymbolLang::leaf(name)))
+                let name_id = self.egraph.add(SymbolLang::leaf(name));
+
+                // If this is a real constant, add an explicit type declaration.
+                if !is_param && is_real_const(name) {
+                    let type_id = self.egraph.add(SymbolLang::leaf(REAL_TYPE_CONST));
+                    self.egraph.add(SymbolLang::new(IS_NODE, vec![name_id, type_id]));
+                }
+
+                Some(name_id)
             },
             Term::Arrow { input_types, output_type } => {
                 let mut v = Vec::new();
@@ -447,7 +461,7 @@ impl Universe {
             if let Some(name) = self.eclass_name.get(&id) {
                 assert!(!is_parameter_name(&name), "Parameters should never be wrapped in {} nodes", IS_NODE);
 
-                if self.context.lookup(&name).is_some() {
+                // if self.context.lookup(&name).is_some() {
                     let val = Rc::new(Term::Atom { name: name.clone() }).eval(&self.context);
                     inputs.push(val);
 
@@ -480,7 +494,7 @@ impl Universe {
                     }
 
                     inputs.pop();
-                }
+                // }
             }
         }
     }
@@ -660,5 +674,46 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         }
         println!("{:?}", proof_count);
         assert!(proof_count == 2);
+    }
+
+    #[test]
+    fn test_equations_with_reals() {
+        let nat_theory: Context = "
+        real : type.
+
+        = : [(t : type) -> t -> t -> type].
+        + : [real -> real -> real].
+        - : [real -> real -> real].
+        * : [real -> real -> real].
+
+        +_comm : [(a : real) -> (b : real) -> (= (+ a b) (+ b a))].
+        +-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))].
+        +0_id : [(a : real) -> (= (+ a 0) a)].
+
+        x : real.
+        y : real.
+
+        x_eq : (= (+ x 3) 10).
+        y_eq : (= y (* x x)).
+        "
+        .parse()
+        .unwrap();
+        let mut u = Universe::new();
+        u.incorporate(&nat_theory);
+
+        u.apply(&"-".to_string());
+        u.apply(&"+-_assoc".to_string());
+        u.apply(&"eval".to_string());
+        u.apply(&"+0_id".to_string());
+
+        let x = Rc::new("x".parse().unwrap());
+        let y = Rc::new("y".parse().unwrap());
+
+        assert_eq!(u.value_of(&x), Some(7));
+        assert_eq!(u.value_of(&y), None);
+
+        u.apply(&"eval".to_string());
+
+        assert_eq!(u.value_of(&y), Some(49));
     }
 }
