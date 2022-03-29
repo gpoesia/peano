@@ -119,9 +119,7 @@ impl Context {
     // Removes objects from insertion_order that have been destroied, to speed-up iteration.
     pub fn rebuild(&mut self) {
         self.insertion_order = self.insertion_order
-                                   .drain(0..)
-                                   .filter(|p| self.definitions.contains_key(p))
-                                   .collect();
+                                   .drain(0..).filter(|p| self.definitions.contains_key(p)).collect();
     }
 
     pub fn get_type_constant(&self) -> &Rc<Term> {
@@ -518,14 +516,17 @@ impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Term::Atom { name } => write!(f, "{}",
-                                          if name.starts_with(PARAMETER_PREFIX) { &name[0..] }
+                                          if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
                                           else { &name[0..] }),
-            Term::Declaration { name, dtype } => write!(f, "{} : {}", &name[0..], dtype),
+            Term::Declaration { name, dtype } => write!(f, "{} : {}",
+                                                        if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
+                                                        else { &name[..] },
+                                                        dtype),
             Term::Arrow { input_types, output_type } => {
                 write!(f, "[")?;
                 for t in input_types.iter() {
                     match t.as_ref() {
-                        Term::Declaration { name, dtype } => write!(f, "({} : {}) -> ", &name[0..], dtype),
+                        Term::Declaration { name, dtype } => write!(f, "({} : {}) -> ", &name[1..], dtype),
                         _ => write!(f, "{} -> ", t),
                     }?;
                 }
@@ -657,11 +658,11 @@ pub mod tests {
 
     #[test]
     fn parse_simple_context() {
-        let result: Result<Context, _> = (concat!("nat : type. ",
-                                                  "\n\n /* Some comment */ ",
-                                                  "   leq : [nat -> nat -> /* hello */ prop]. ",
-                                                  "leq_z : [nat -> prop] = lambda (n : nat) (leq z n).")
-                                          .parse());
+        let result: Result<Context, _> = concat!("nat : type. ",
+                                                 "\n\n /* Some comment */ ",
+                                                 "   leq : [nat -> nat -> /* hello */ prop]. ",
+                                                 "leq_z : [nat -> prop] = lambda (n : nat) (leq z n).")
+                                         .parse();
         assert!(result.is_ok());
         let context = result.unwrap();
 
