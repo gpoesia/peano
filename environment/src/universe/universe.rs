@@ -597,4 +597,53 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         assert!(u.inhabited(&Rc::new("(leq z (s z))".parse().unwrap())).is_some());
         assert!(u.inhabited(&Rc::new("(leq (s z) (s (s (s z))))".parse().unwrap())).is_some());
     }
+
+    #[test]
+    fn test_proof_irrelevance() {
+        let nat_theory: Context = "
+        nat : type.
+        z : nat.
+        s : [nat -> nat].
+        one : nat = (s z).
+        leq : [nat -> nat -> prop].
+        leq_n_sn : [(n : nat) -> (leq n (s n))].
+        leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (leq n o)].
+        "
+        .parse()
+        .unwrap();
+        let mut u = Universe::new();
+        u.incorporate(&nat_theory);
+
+        u.apply(&"s".to_string());
+        u.apply(&"s".to_string());
+        u.apply(&"s".to_string());
+        u.apply(&"leq_n_sn".to_string());
+        u.apply(&"leq_trans".to_string());
+        u.apply(&"leq_trans".to_string());
+
+        let leq_z_one = Rc::new("(leq z one)".parse().unwrap());
+        let leq_z_sz = Rc::new("(leq z (s z))".parse().unwrap());
+        let leq_z_sssz = Rc::new("(leq z (s (s (s z))))".parse().unwrap());
+        let leq_z_ssone = Rc::new("(leq z (s (s one)))".parse().unwrap());
+
+        assert!(u.inhabited(&leq_z_one).is_some());
+        assert!(u.inhabited(&leq_z_sz).is_some());
+        assert!(u.inhabited(&leq_z_sssz).is_some());
+        assert!(u.inhabited(&leq_z_ssone).is_some());
+
+        // Only one of leq z one or leq z (s z) and one of (leq z (s (s (s z)))) and (leq z (s (s one))) should be named in the context
+        let mut proof_count = 0;
+        for name in u.context.insertion_order.iter() {
+            if let Some(def) = u.context.lookup(&name) {
+                // If the dtype is of type proposition, check for irrelevance
+                if (def.dtype == leq_z_one || def.dtype == leq_z_sz)
+                    || (def.dtype == leq_z_sssz || def.dtype == leq_z_ssone)
+                {
+                    proof_count += 1;
+                }
+            }
+        }
+        println!("{:?}", proof_count);
+        assert!(proof_count == 2);
+    }
 }
