@@ -145,6 +145,14 @@ impl Universe {
         self.rebuild();
     }
 
+    pub fn incorporate_definitions(&mut self, defs: &Vec<Definition>, name_prefix: &str) {
+        for d in defs.iter() {
+            self.define(name_prefix.to_string(), d.clone(), true);
+        }
+
+        self.rebuild();
+    }
+
     fn is_represented(&self, t: &Rc<Term>) -> Option<Id> {
         self.egraph.lookup_expr(&t.to_recexpr())
     }
@@ -265,7 +273,17 @@ impl Universe {
         self.context.actions()
     }
 
-    pub fn apply(&mut self, action: &String) -> Vec<Rc<Term>> {
+    // Applies an action and add all of its results to the context.
+    // Returns the vector of all produced results.
+    pub fn apply(&mut self, action: &String) -> Vec<Definition> {
+        let new_terms = self.application_results(action);
+        self.incorporate_definitions(&new_terms, format!("res_{}", action).as_str());
+        new_terms
+    }
+
+    // Applies an action with all possible distinct arguments.
+    // Returns a vector with all produced results.
+    pub fn application_results(&self, action: &String) -> Vec<Definition> {
         let mut new_terms = Vec::new();
 
         match self.context.lookup(action) {
@@ -278,30 +296,28 @@ impl Universe {
             Some(action_def) => {
                 match action_def.dtype.as_ref() {
                     Term::Arrow { input_types, output_type: _ } => {
+                        let mut results = Vec::new();
                         self.nondeterministically_apply_arrow(
                             &Rc::new(Term::Atom { name: action.clone() }),
                             input_types,
                             &mut Vec::new(),
-                            &mut new_terms
+                            &mut results
                         );
 
-                        for t in new_terms.iter() {
-                            self.define(format!("!res_{}_", action),
-                                        Definition { dtype: t.get_type(&self.context),
-                                                     value: Some(t.clone()) },
-                                        true);
+                        for r in results.drain(0..) {
+                            new_terms.push(Definition { dtype: r.get_type(&self.context),
+                                                        value: Some(r) });
                         }
                     },
                     _ => {}
                 }
             },
         }
-        self.rebuild();
 
         new_terms
     }
 
-    fn apply_builtin_eval(&mut self, new_terms: &mut Vec<Rc<Term>>) {
+    fn apply_builtin_eval(&self, new_terms: &mut Vec<Definition>) {
         // FIXME Cache these.
         let lhs = "?lhs".parse::<egg::Var>().unwrap();
         let rhs = "?rhs".parse::<egg::Var>().unwrap();
@@ -346,21 +362,12 @@ impl Universe {
                                     ]
                                 });
 
-                                let obj_name = format!("eval{}", self.next_term_id());
-                                new_terms.push(Rc::new(Term::Declaration { name: obj_name,
-                                                                           dtype: eq_type.clone() }));
+                                new_terms.push(Definition { dtype: eq_type, value: None });
                             }
                         },
                         _ => {}
                     }
                 }
-            }
-        }
-
-        for nt in new_terms {
-            if let Term::Declaration { name, dtype } = nt.as_ref() {
-                let def = Definition { dtype: dtype.clone(), value: None };
-                self.define(name.clone(), def, false);
             }
         }
     }
