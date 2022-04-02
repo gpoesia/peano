@@ -7,6 +7,7 @@ use std::path::Path;
 
 use egg::*;
 use super::term::{Context, Term, Definition, is_parameter_name};
+use super::equivalence::AbstractSExp;
 
 const IS_NODE: &str = &"$is";
 const PARAM_NODE: &str = &"$param";
@@ -506,23 +507,32 @@ impl Universe {
         }
     }
 
-    fn are_equivalent(&self, t1: &Rc<Term>, t2: &Rc<Term>) -> bool {
-        let q1: egg::Pattern<SymbolLang> = t1.to_pattern().as_str().parse().unwrap();
-        let m1 = q1.search(&self.egraph);
+    // Returns whether the two given objects are equivalent considering all the equalities
+    // implicitly encoded in the universe.
+    fn are_equivalent(&self, t1: &Term, t2: &Term) -> bool {
+        let abstract_t1 = t1.to_sexp().abstract_with_egraph(&self.egraph);
+        let abstract_t2 = t2.to_sexp().abstract_with_egraph(&self.egraph);
 
-        if m1.len() == 0 {
-            return t1 == t2;
+        if abstract_t1 == abstract_t2 {
+            return true;
         }
 
-        let q2: egg::Pattern<SymbolLang> = t2.to_pattern().as_str().parse().unwrap();
-
-        let m2 = q2.search(&self.egraph);
-
-        if m2.len() == 0 {
-            return t1 == t2;
+        // Equality objects are special because they're symmetric, so we have to also
+        // test the other direction.
+        if let AbstractSExp::Application { op, children } = &abstract_t1 {
+            if op == "=" {
+                if let AbstractSExp::Application { op: op2, children: children2 } = &abstract_t2 {
+                    if op2 == "=" {
+                        assert_eq!(children.len(), 2, "Equality used as a non-binary relation.");
+                        assert_eq!(children2.len(), 2, "Equality used as a non-binary relation.");
+                        // Just test the reverse direction - the regular one is already covered.
+                        return children[0] == children2[1] && children[1] == children2[0];
+                    }
+                }
+            }
         }
 
-        return self.egraph.find(m1[0].eclass) == self.egraph.find(m2[0].eclass);
+        false
     }
 
     pub fn dump_context(&self) -> String {
@@ -722,5 +732,53 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         u.apply(&"eval".to_string());
 
         assert_eq!(u.value_of(&y), Some(49));
+    }
+
+    #[test]
+    fn test_equivalences() {
+        let real_theory: Context = "
+        real : type.
+
+        = : [(t : type) -> t -> t -> type].
+        + : [real -> real -> real].
+        - : [real -> real -> real].
+        * : [real -> real -> real].
+
+        x : real.
+        y : real.
+        z : real.
+        w : real.
+
+        _1 : (= (+ x y) (+ 10 20)).
+        _2 : (= (- x y) 5).
+        _3 : (= z (+ w w)).
+        _4 : (= z w).
+        "
+        .parse()
+        .unwrap();
+        let mut u = Universe::new();
+        u.incorporate(&real_theory);
+
+        // `a` is not in the universe, but is definitionally equivalent to itself.
+        assert!(u.are_equivalent(&"a".parse().unwrap(), &"a".parse().unwrap()));
+        // Not these two.
+        assert!(!u.are_equivalent(&"a".parse().unwrap(), &"b".parse().unwrap()));
+        // Test symmetry of equality.
+        assert!(!u.are_equivalent(&"(= (+ a a) b)".parse().unwrap(), &"(= b (+ a a))".parse().unwrap()));
+        // Now using some of the equivalences in the universe.
+        assert!(u.are_equivalent(&"(+ (- x y) (- x y))".parse().unwrap(), &"(+ 5 5)".parse().unwrap()));
+        assert!(u.are_equivalent(&"(+ (- x y) 5)".parse().unwrap(), &"(+ 5 5)".parse().unwrap()));
+        assert!(u.are_equivalent(&"(+ (- x y) 5)".parse().unwrap(), &"(+ 5 5)".parse().unwrap()));
+        // The e-graph has a loop - infinitely sized e-class.
+        assert!(u.are_equivalent(&"z".parse().unwrap(),
+                                 &"(+ w (+ w (+ z z)))".parse().unwrap()));
+        assert!(u.are_equivalent(&"z".parse().unwrap(),
+                                 &"(+ (+ (+ z w) z) (+ w (+ z z)))".parse().unwrap()));
+        // Should also work with parts not in the e-graph.
+        assert!(u.are_equivalent(&"(- (* (+ 10 20) 5) z)".parse().unwrap(),
+                                 &"(- (* (+ x y) 5) (+ (+ (+ z w) z) (+ w (+ z z))))".parse().unwrap()));
+        // But (+ 9 20) should not match anything.
+        assert!(!u.are_equivalent(&"(- (* (+ 9 20) 5) z)".parse().unwrap(),
+                                  &"(- (* (+ x y) 5) (+ (+ (+ z w) z) (+ w (+ z z))))".parse().unwrap()));
     }
 }

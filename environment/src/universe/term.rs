@@ -13,6 +13,8 @@ use smallset::SmallSet;
 
 use egg::{RecExpr, SymbolLang};
 
+use crate::universe::equivalence::AbstractSExp;
+
 const TYPE: &str = "type";
 const PROP: &str = "prop";
 
@@ -572,6 +574,64 @@ impl Term {
     pub fn to_recexpr(&self) -> RecExpr<SymbolLang> {
         // This is a naïve implementation, but works for now.
         RecExpr::from_str(self.to_pattern().as_str()).unwrap()
+    }
+
+    pub fn to_sexp(&self) -> AbstractSExp {
+         match self {
+             Term::Atom { name } => { AbstractSExp::new_atom(name.clone()) }
+             Term::Declaration { name, dtype } => {
+                 AbstractSExp::new_application("$is".to_string(), vec![
+                     AbstractSExp::new_atom(name.clone()),
+                     dtype.to_sexp(),
+                 ])
+             },
+             Term::Arrow { input_types, output_type } => {
+                 let mut children = Vec::new();
+                 for t in input_types.iter() {
+                     children.push(match t.as_ref() {
+                         Term::Declaration { name, dtype } => {
+                             AbstractSExp::new_application(
+                                 "$param".to_string(),
+                                 vec![
+                                     AbstractSExp::new_atom(name.clone()),
+                                     dtype.to_sexp(),
+                                 ]
+                             )
+                         },
+                         _ => t.to_sexp()
+                     });
+                 }
+                 children.push(output_type.to_sexp());
+                 AbstractSExp::new_application("$arrow".to_string(), children)
+             },
+             Term::Application { function, arguments } => {
+                 AbstractSExp::new_application(
+                     "$app".to_string(),
+                     vec![function.to_sexp()].into_iter().chain(
+                         arguments.into_iter().map(|a| a.to_sexp())
+                     ).collect()
+                 )
+             },
+             Term::Lambda { parameters, body } => {
+                 let mut children = Vec::new();
+                 for p in parameters.iter() {
+                     children.push(match p.as_ref() {
+                         Term::Declaration { name, dtype } => {
+                             AbstractSExp::new_application(
+                                 "$param".to_string(),
+                                 vec![
+                                     AbstractSExp::new_atom(name.clone()),
+                                     dtype.to_sexp(),
+                                 ]
+                             )
+                         },
+                         _ => panic!("Each lambda parameter should be a Term::Declaration")
+                     });
+                 }
+                 children.push(body.to_sexp());
+                 AbstractSExp::new_application("$lambda".to_string(), children)
+             },
+        }
     }
 
     fn write_pattern_string(&self, s: &mut String) {
