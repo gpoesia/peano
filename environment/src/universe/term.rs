@@ -302,6 +302,15 @@ impl Term {
         Rc::new(self.clone())
     }
 
+    pub fn new_equality(lhs: Rc<Term>, rhs: Rc<Term>) -> Rc<Term> {
+        Rc::new(
+            Term::Application {
+                function: Rc::new(Term::Atom { name: "=".to_string() }),
+                arguments: vec![lhs, rhs]
+            }
+        )
+    }
+
     pub fn free_variables(self: &Rc<Term>) -> VarSet {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.free_variables(),
@@ -492,8 +501,8 @@ impl Term {
         }
     }
 
-    pub fn extract_equality(self: &Rc<Term>) -> Option<(Rc<Term>, Rc<Term>)> {
-        if let Term::Application { function, arguments } = self.as_ref() {
+    pub fn extract_equality(self: &Term) -> Option<(Rc<Term>, Rc<Term>)> {
+        if let Term::Application { function, arguments } = &self {
             if let Term::Atom { name } = function.as_ref() {
                 if name == "=" {
                     assert_eq!(arguments.len(), 2,

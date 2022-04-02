@@ -282,6 +282,42 @@ impl Universe {
         new_terms
     }
 
+    // Applies an action and checks whether it constructs the target object.
+    // If it does, adds that object to the universe, returning Ok.
+    // Otherwise, returns an Err with all the objects that were constructed by the action.
+    pub fn construct_by(&mut self, action: &String, target: &Term) -> Result<(), Vec<Definition>> {
+        let results = self.application_results(action);
+
+        for def in results.iter() {
+            if let Some(value) = &def.value {
+                if self.are_equivalent(target, &value) {
+                    self.define(format!("r_{}_", action), def.clone(), true);
+                    self.rebuild();
+                    return Ok(())
+                }
+            }
+        }
+
+        Err(results)
+    }
+
+    // Applies an action and checks whether it constructs an object of the target type (typically a prop).
+    // If it does, adds that object to the universe, returning Ok.
+    // Otherwise, returns an Err with all the objects that were constructed by the action.
+    pub fn show_by(&mut self, action: &String, target_type: &Term) -> Result<(), Vec<Definition>> {
+        let results = self.application_results(action);
+
+        for def in results.iter() {
+            if self.are_equivalent(target_type, &def.dtype) {
+                self.define(format!("r_{}_", action), def.clone(), true);
+                self.rebuild();
+                return Ok(())
+            }
+        }
+
+        Err(results)
+    }
+
     // Applies an action with all possible distinct arguments.
     // Returns a vector with all produced results.
     pub fn application_results(&self, action: &String) -> Vec<Definition> {
@@ -518,17 +554,10 @@ impl Universe {
         }
 
         // Equality objects are special because they're symmetric, so we have to also
-        // test the other direction.
-        if let AbstractSExp::Application { op, children } = &abstract_t1 {
-            if op == "=" {
-                if let AbstractSExp::Application { op: op2, children: children2 } = &abstract_t2 {
-                    if op2 == "=" {
-                        assert_eq!(children.len(), 2, "Equality used as a non-binary relation.");
-                        assert_eq!(children2.len(), 2, "Equality used as a non-binary relation.");
-                        // Just test the reverse direction - the regular one is already covered.
-                        return children[0] == children2[1] && children[1] == children2[0];
-                    }
-                }
+        // test the other direction. The regular one has just failed.
+        if let Some((lhs, rhs)) = t2.extract_equality() {
+            if abstract_t1 == Term::new_equality(rhs, lhs).to_sexp().abstract_with_egraph(&self.egraph) {
+                return true;
             }
         }
 
@@ -695,7 +724,7 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
 
     #[test]
     fn test_equations_with_reals() {
-        let nat_theory: Context = "
+        let real_theory: Context = "
         real : type.
 
         = : [(t : type) -> t -> t -> type].
@@ -716,7 +745,7 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         .parse()
         .unwrap();
         let mut u = Universe::new();
-        u.incorporate(&nat_theory);
+        u.incorporate(&real_theory);
 
         u.apply(&"-".to_string());
         u.apply(&"+-_assoc".to_string());
@@ -780,5 +809,48 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         // But (+ 9 20) should not match anything.
         assert!(!u.are_equivalent(&"(- (* (+ 9 20) 5) z)".parse().unwrap(),
                                   &"(- (* (+ x y) 5) (+ (+ (+ z w) z) (+ w (+ z z))))".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_construct_by_and_show_by() {
+        let real_theory: Context = "
+        real : type.
+
+        = : [(t : type) -> t -> t -> type].
+        + : [real -> real -> real].
+        - : [real -> real -> real].
+        * : [real -> real -> real].
+
+        +_comm : [(a : real) -> (b : real) -> (= (+ a b) (+ b a))].
+        +-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))].
+        +0_id : [(a : real) -> (= (+ a 0) a)].
+
+        x : real.
+        y : real.
+
+        x_eq : (= (+ x 3) 10).
+        y_eq : (= y (* x x)).
+        "
+        .parse()
+        .unwrap();
+        let mut u = Universe::new();
+        u.incorporate(&real_theory);
+
+        assert!(u.construct_by(&"-".to_string(), &"(- (+ x 3) 3)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= (- (+ x 3) 3) 7)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"+-_assoc".to_string(), &"(= (+ x (- 3 3)) 7)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= (- 3 3) 0)".parse().unwrap()).is_ok());
+
+        // This is not shown by +0_id.
+        assert!(u.show_by(&"+0_id".to_string(), &"(= x 8)".parse().unwrap()).is_err());
+
+        // This is true, but not shown by +0_id.
+        assert!(u.show_by(&"+0_id".to_string(), &"(= x x)".parse().unwrap()).is_err());
+
+        // The previous calls shouldn't have added anything, and this one should work.
+        assert!(u.show_by(&"+0_id".to_string(), &"(= 7 x)".parse().unwrap()).is_ok());
+
+        // Last one.
+        assert!(u.show_by(&"eval".to_string(), &"(= y 49)".parse().unwrap()).is_ok());
     }
 }
