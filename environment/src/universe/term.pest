@@ -1,13 +1,14 @@
 // Terms grammar
 
-context = { SOI ~ definition* ~ EOI }
+context = { SOI ~ (definition | verify)* ~ EOI }
 
 term = _{ lambda | application | atom | arrow }
 
-definition = { declaration ~ ("=" ~ term)? ~ "." }
+definition = { (assume | declaration ~ ("=" ~ term)?) ~ "." }
 
 lambda = { "lambda" ~ "(" ~ declaration ~ ("," ~ declaration)* ~ ")" ~ term }
-declaration = { atom ~ ":" ~ ttype }
+declaration = { "let"? ~ atom ~ ":" ~ ttype }
+assume = { "assume" ~ ttype }
 
 ttype = _{ atom | application | arrow }
 arrow = { "[" ~ (arrow_input_type ~ "->" )+ ~ ttype ~ "]" }
@@ -19,6 +20,15 @@ application = { "(" ~ term ~ term+ ~ ")" }
 atom = @{ ('0'..'9' | 'a'..'z' | 'A'..'Z'
                  | "_" | "-" | "+" | "/" | "*" | "="
                  | "!" | "$" | "^" | ">" | "<" )+ }
+
+// Verification script
+verify = { "verify" ~ atom ~ "{" ~ verification_script ~ "}" }
+verification_script = { verification_instruction* }
+
+verification_instruction = _{ show_by | construct_by | definition }
+
+show_by = { "show" ~ ttype ~ "by" ~ atom ~ "."}
+construct_by = { "construct" ~ term ~ "by" ~ atom ~ "."}
 
 WHITESPACE = _{ " " | "\n" | "\t" | "\r" }
 COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }

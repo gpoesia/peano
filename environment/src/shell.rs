@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::process::{Command, ExitStatus};
 use std::rc::Rc;
+use colored::Colorize;
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -44,6 +45,50 @@ impl Shell {
                         Ok(ctx.insertion_order.len())
                     }
                 }
+            }
+        }
+    }
+
+    pub fn verify_all(&self) -> Result<(), String> {
+        let mut successes = 0;
+        let mut failures = 0;
+        for name in self.universe.verification_scripts() {
+            if self.verify(name).is_ok() {
+                successes += 1;
+            } else {
+                failures += 1;
+            }
+        }
+
+        let total = successes + failures;
+        if total == 0 {
+            println!("{}", "No verifications found.".yellow());
+        } else {
+            println!("\nVerified {} derivation(s){}{}.",
+                     total,
+                     if successes > 0 { format!(", {}", format!("{} succeeded", successes).green()) }
+                     else { format!("") },
+                     if failures > 0 { format!(", {}", format!("{} failed", failures).red()) }
+                     else { format!("") },
+            );
+        }
+
+        if failures > 0 {
+            return Err(String::from("At least one verification failed."));
+        }
+        Ok(())
+    }
+
+    pub fn verify(&self, script_name: &String) -> Result<(), String> {
+        print!("Verifying {}... ", script_name);
+        match self.universe.execute_verification_script(script_name) {
+            Ok(_) => {
+                println!("{}", "ok".green());
+                Ok(())
+            },
+            Err(e) => {
+                println!("{}: {}", "error".red(), e);
+                Err(e.to_string())
             }
         }
     }

@@ -6,8 +6,9 @@ use std::io;
 use std::path::Path;
 
 use egg::*;
-use super::term::{Context, Term, Definition, is_parameter_name};
+use super::term::{Context, Term, Definition, is_parameter_name, VerificationNames};
 use super::equivalence::AbstractSExp;
+use super::verifier::{VerificationScript, VerificationError};
 
 const IS_NODE: &str = &"$is";
 const PARAM_NODE: &str = &"$param";
@@ -16,6 +17,7 @@ const APPLY_NODE: &str = &"$app";
 const LAMBDA_NODE: &str = &"$lambda";
 const REAL_TYPE_CONST: &str = &"real";
 
+#[derive(Clone)]
 pub struct Universe {
     egraph: EGraph<SymbolLang, ()>,
     context: Context,
@@ -144,6 +146,10 @@ impl Universe {
         }
 
         self.rebuild();
+
+        for script in context.verifications.iter() {
+            self.context.add_verification(script.clone());
+        }
     }
 
     pub fn incorporate_definitions(&mut self, defs: &Vec<Definition>, name_prefix: &str) {
@@ -316,6 +322,21 @@ impl Universe {
         }
 
         Err(results)
+    }
+
+    pub fn verification_scripts(&self) -> VerificationNames {
+        self.context.verification_scripts()
+    }
+
+    // Executes a verification script in the current universe.
+    // This does not mutate the universe. Instead, it executes in a copy.
+    pub fn execute_verification_script(&self, name: &String) -> Result<(), VerificationError> {
+        for v in self.context.verifications.iter() {
+            if v.name() == name {
+                return v.execute(self.clone())
+            }
+        }
+        Err(VerificationError::ScriptNotFound(name.clone()))
     }
 
     // Applies an action with all possible distinct arguments.

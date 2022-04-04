@@ -4,6 +4,7 @@ use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_set::Iter;
 use std::fmt;
+use std::iter::Map;
 use core::str::FromStr;
 
 use pest::Parser;
@@ -14,6 +15,7 @@ use smallset::SmallSet;
 use egg::{RecExpr, SymbolLang};
 
 use crate::universe::equivalence::AbstractSExp;
+use crate::universe::verifier::{VerificationScript, VerificationInstruction, parse_verification_script};
 
 const TYPE: &str = "type";
 const PROP: &str = "prop";
@@ -23,13 +25,18 @@ const PROP: &str = "prop";
 const PARAMETER_PREFIX: &str = "$";
 type VarSet = SmallSet<[String; 5]>;
 
+#[derive(Clone)]
 pub struct Context {
     type_const: Rc<Term>, // The global constant `type` used to define other types.
     prop_const: Rc<Term>, // The global constant `prop,` which is a type used to define propositions.
     definitions: HashMap<String, Vec<Definition>>, // Map of names to definitions.
     pub insertion_order: Vec<String>, // Order in which definitions were added.
     arrows: HashSet<String>, // Set of global definitions that are arrows.
+    pub(super) verifications: Vec<VerificationScript>, // Set of global definitions that are arrows.
 }
+
+pub type VerificationNames<'a> = Map<std::slice::Iter<'a, VerificationScript>,
+                                     fn(&VerificationScript) -> &String>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Definition {
@@ -49,7 +56,7 @@ impl Definition {
 
 #[derive(Parser)]
 #[grammar = "universe/term.pest"]
-struct TermParser;
+pub(super) struct TermParser;
 
 impl Context {
     pub fn new() -> Context {
@@ -60,7 +67,9 @@ impl Context {
                               insertion_order: Vec::new(),
                               type_const: type_const.clone(),
                               prop_const: prop_const.clone(),
-                              arrows: HashSet::new() };
+                              arrows: HashSet::new(),
+                              verifications: Vec::new(),
+                            };
         c.definitions.insert(TYPE.to_string(), vec![type_const_def.clone()]);
         c.definitions.insert(PROP.to_string(), vec![type_const_def]);
         c
@@ -98,6 +107,14 @@ impl Context {
             self.insertion_order.push(name.clone());
             self.definitions.insert(name, vec!(def));
         }
+    }
+
+    pub fn add_verification(&mut self, script: VerificationScript) {
+        self.verifications.push(script);
+    }
+
+    pub fn verification_scripts(&self) -> VerificationNames<'_> {
+        self.verifications.iter().map(VerificationScript::name)
     }
 
     // Sets a new value to a previously defined name.
@@ -151,26 +168,48 @@ impl FromStr for Context {
         let mut c = Context::new();
         let mut v: Vec<_> = root.into_inner().collect();
 
-        for def_rule in v.drain(0..) {
-            let rule = def_rule.as_rule();
-
-            if rule != Rule::definition {
-                continue;
-            }
-
-            let mut sub : Vec<Pair<Rule>> = def_rule.into_inner().collect();
-            let mut children : Vec<Rc<Term>> = sub.drain(0..)
-                                                  .map(|p| parse_term(p, &mut HashMap::new()))
-                                                  .collect();
-            let value = if children.len() == 2 { children.pop() } else { None };
-
-            if let Term::Declaration { name, dtype } = children[0].as_ref() {
-                let def = Definition { dtype: dtype.clone(), value: value };
-                c.define(name.clone(), def);
+        for element in v.drain(0..) {
+            match element.as_rule() {
+                Rule::definition => {
+                    let (name, def) = parse_definition(element.into_inner().collect());
+                    c.define(name, def);
+                },
+                Rule::verify => {
+                    let vscript = parse_verification_script(element);
+                    c.add_verification(vscript);
+                },
+                Rule::EOI => { continue; },
+                r => unreachable!("Context elements are either definitions or verifications, not {:?}.", r),
             }
         }
 
         Ok(c)
+    }
+}
+
+pub(super) fn parse_definition(mut sub: Vec<Pair<Rule>>) -> (String, Definition) {
+    // A `definition` is either a named declaration or an "assume" declaration,
+    // which is essentially an unnamed declaration of a proof object.
+    if sub[0].as_rule() == Rule::assume {
+        assert_eq!(sub.len(), 1, "'assume' definition branch has a single child (the prop term).");
+        let name = format!("__pobj{}", sub[0].as_span().split().0.pos());
+        let mut sub_children : Vec<Rc<Term>> = sub.remove(0).into_inner()
+            .map(|p| parse_term(p, &mut HashMap::new()))
+            .collect();
+        assert_eq!(sub_children.len(), 1, "'assume' rule has a single child (the prop term).");
+        return (name, Definition { dtype: sub_children.remove(0), value: None });
+    } else {
+        // Regular (named) declaration).
+        let mut children : Vec<Rc<Term>> = sub.drain(0..)
+            .map(|p| parse_term(p, &mut HashMap::new()))
+            .collect();
+        let value = if children.len() == 2 { children.pop() } else { None };
+
+        if let Term::Declaration { name, dtype } = children[0].as_ref() {
+            let def = Definition { dtype: dtype.clone(), value: value };
+            return (name.clone(), def);
+        }
+        unreachable!("First child of a definition must be a declaration");
     }
 }
 
@@ -217,14 +256,14 @@ fn rename_param_declaration(t: &mut Rc<Term>) -> Option<String> {
     Some(name)
 }
 
-fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -> Rc<Term> {
+pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -> Rc<Term> {
     let rule = pair.as_rule();
     let s = pair.as_str();
     let mut sub : Vec<Pair<Rule>> = pair.into_inner().collect();
 
     match rule {
         Rule::lambda => {
-            let mut params : Vec<Rc<Term>> = Vec::new(); // sub.drain(0..sub.len() - 1).map(|p| parse_term(p, decls)).collect();
+            let mut params : Vec<Rc<Term>> = Vec::new();
             let mut param_names : Vec<String> = Vec::new();
 
             for s in sub.drain(0..sub.len() - 1) {
