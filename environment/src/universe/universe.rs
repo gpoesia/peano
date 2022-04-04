@@ -792,8 +792,8 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         assert!(u.are_equivalent(&"a".parse().unwrap(), &"a".parse().unwrap()));
         // Not these two.
         assert!(!u.are_equivalent(&"a".parse().unwrap(), &"b".parse().unwrap()));
-        // Test symmetry of equality.
-        assert!(!u.are_equivalent(&"(= (+ a a) b)".parse().unwrap(), &"(= b (+ a a))".parse().unwrap()));
+        // Should be true by symmetry of equality.
+        assert!(u.are_equivalent(&"(= (+ a a) b)".parse().unwrap(), &"(= b (+ a a))".parse().unwrap()));
         // Now using some of the equivalences in the universe.
         assert!(u.are_equivalent(&"(+ (- x y) (- x y))".parse().unwrap(), &"(+ 5 5)".parse().unwrap()));
         assert!(u.are_equivalent(&"(+ (- x y) 5)".parse().unwrap(), &"(+ 5 5)".parse().unwrap()));
