@@ -131,12 +131,6 @@ impl Context {
     }
 
     pub fn destroy(&mut self, name: &String) {
-        /* if let Some(v) = self.definitions.get_mut(name) {
-            if v.len() > 1 {
-                v.pop();
-                return;
-            }
-        } */
         self.definitions.remove(name);
     }
 
