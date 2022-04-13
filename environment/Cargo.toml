@@ -7,12 +7,17 @@ edition = "2021"
 
 [lib]
 name = "peano"
+crate-type = ["lib", "cdylib"]
 
 [dependencies]
+colored = "2.0.0"
+commoncore = { "path" = "deps/socratic-tutor/commoncore/" }
 egg = "0.7.1"
 pest = "2.0"
 pest_derive = "2.0"
+pyo3 = { version = "0.16.3", features = ["extension-module"] }
+rand = "0.8.3"
+rand_pcg = "0.3.0"
 rustyline = "9.1.0"
-tempfile = "3.0.3"
 smallset = "0.1.1"
-colored = "2.0.0"
+tempfile = "3.0.3"
