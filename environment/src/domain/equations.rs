@@ -15,16 +15,24 @@ pub struct Equations {
 }
 
 impl Equations {
-    pub fn new() -> Equations {
+    pub fn new_with_templates(templates: &str) -> Equations {
         let mut u = Universe::new();
         u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
 
         Equations {
-            cc_equations: CCEquations {},
+            cc_equations: CCEquations::new(templates),
             base_universe: u,
             real_dtype: Rc::new(Term::Atom { name: "real".to_string() }),
             variable_term: Rc::new(Term::Atom { name: "x".to_string() }),
         }
+    }
+
+    pub fn new_ct() -> Equations {
+        Self::new_with_templates(include_str!("./templates/equations-ct.txt"))
+    }
+
+    pub fn new_easy() -> Equations {
+        Self::new_with_templates(include_str!("./templates/equations-easy.txt"))
     }
 }
 
@@ -45,7 +53,7 @@ impl Domain for Equations {
 
         u.define(String::from("eq"),
                  Definition { dtype: eq_term, value: None },
-                 true);
+                 false);
 
         u.rebuild();
 

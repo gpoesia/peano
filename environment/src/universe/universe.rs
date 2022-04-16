@@ -57,6 +57,10 @@ impl Universe {
             name
         };
 
+        if cfg!(debug_assertions) {
+            println!("define {} : {}", name, &def.dtype);
+        }
+
         let decl = Rc::new(Term::Declaration { name: name.clone(), dtype: def.dtype });
         let decl_id = self.define_term(&decl, false, rename);
 
@@ -196,6 +200,10 @@ impl Universe {
                         } else if let Some(t2_id) = self.is_represented(&t2) {
                             let t1_id = self.define_term(&t1, false, false)?;
                             self.egraph.union(t1_id, t2_id);
+                        }
+
+                        if cfg!(debug_assertions) {
+                            println!("pruning ignored equality {} = {}", t1, t2);
                         }
 
                         return None;
@@ -362,7 +370,20 @@ impl Universe {
                             &mut results
                         );
 
-                        for r in results.drain(0..) {
+                        for r in results.into_iter() {
+                            let dtype = r.get_type(&self.context);
+
+                            // Filter out constrained equalities:
+                            if let Some((t1, t2)) = dtype.extract_equality() {
+                                match (self.is_represented(&t1), self.is_represented(&t2)) {
+                                    // Ignore redundant equalities (t1 already equals t2 in the context).
+                                    (Some(id1), Some(id2)) => if id1 == id2 { continue; },
+                                    // Ignore equalities between two new objects.
+                                    (None, None) => { continue },
+                                    _ => {},
+                                }
+                            }
+
                             new_terms.push(Definition { dtype: r.get_type(&self.context),
                                                         value: Some(r) });
                         }

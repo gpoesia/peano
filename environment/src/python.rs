@@ -86,7 +86,8 @@ impl PyDomain {
 thread_local!{
     pub static DOMAINS: HashMap<&'static str, Arc<dyn Domain>> = {
         let mut map : HashMap<&'static str, Arc<dyn Domain>> = HashMap::new();
-        map.insert("equations", Arc::new(Equations::new()));
+        map.insert("equations", Arc::new(Equations::new_ct()));
+        map.insert("equations-easy", Arc::new(Equations::new_easy()));
         // map.insert("fractions", Arc::new(Fractions::new(4, 4)));
         // map.insert("ternary-addition", Arc::new(TernaryAddition::new(15)));
         // map.insert("ternary-addition-small", Arc::new(TernaryAddition::new(8)));

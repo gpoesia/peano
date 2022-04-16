@@ -23,3 +23,30 @@ class SingleDomainEnvironment(Environment):
     def sample_problem(self, seed: int = None):
         seed = seed or random.randint(10**7, 10**8)
         return self.domain.generate(seed)
+
+
+def interact(domain):
+    env = SingleDomainEnvironment(domain)
+    p = env.sample_problem()
+
+    print('Problem:', p.starting_state())
+
+    while not p.reward():
+        actions = p.actions() + ['eval']
+        print('Actions:', list(enumerate(actions)))
+
+        a = int(input('Choose action: '))
+        defs = p.apply(actions[a])
+
+        print('Outcomes:', list(enumerate(map(str, defs))))
+
+        o = int(input('Outcome: '))
+        p.define('r', defs[o])
+
+        print('Reward?', p.reward())
+
+    print('Solved!')
+
+
+if __name__ == '__main__':
+    interact('equations-easy')
