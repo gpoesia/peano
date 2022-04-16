@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
+from transformers import ReformerModelWithLMHead, ReformerConfig
 
 from environment import Universe
 
@@ -22,13 +25,16 @@ BOS = 1
 EOS = 2
 EMPTY = '\x03'
 
-def encode_batch(b: list[str], device: torch.device) -> torch.LongTensor:
+def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torch.LongTensor:
     if not b:
         return torch.LongTensor()
 
     max_len = max(map(len, b))
 
-    return torch.LongTensor([[BOS] + list(map(ord, o)) + [EOS] + [PAD] * (max_len - len(o))
+    return torch.LongTensor([[BOS] * bos +
+                             list(map(ord, o)) +
+                             [EOS] * eos +
+                             [PAD] * (max_len - len(o))
                              for o in b],
                             device=device)
 
@@ -36,19 +42,19 @@ class Policy(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: Any) -> torch.Tensor:
         'Scores the arrows that can be called.'
         raise NotImplementedError()
 
-    def score_outcomes(self, outcomes: list[str], state: torch.Tensor) -> torch.Tensor:
+    def score_outcomes(self, outcomes: list[str], state: Any) -> torch.Tensor:
         'Scores the results that were produced by a given arrow.'
         raise NotImplementedError()
 
-    def initial_state(self, observation: str) -> torch.Tensor:
+    def initial_state(self, observation: str) -> Any:
         'Returns the initial hidden state of the policy given the starting observation.'
         raise NotImplementedError()
 
-    def next_state(self, state: torch.Tensor, observation: str) -> torch.Tensor:
+    def next_state(self, state: Any, observation: str) -> Any:
         'Implements the recurrent rule to update the hidden state.'
         raise NotImplementedError()
 
@@ -57,7 +63,7 @@ class Policy(nn.Module):
             initial_observation = problem.starting_state()
 
             episode = Episode(initial_observation)
-            actions = problem.actions()
+            actions = problem.actions() + ['eval']
 
             state = self.initial_state(initial_observation)
 
@@ -67,17 +73,19 @@ class Policy(nn.Module):
 
                 outcomes = problem.apply(sampled_arrow)
                 if outcomes:
-                    outcomes_scores = self.score_outcomes(list(map(str, outcomes)), state)
+                    outcomes_scores = self.score_outcomes(list(map(str, outcomes)), sampled_arrow, state)
                     sampled_outcome = outcomes[Categorical(outcomes_scores.softmax(-1)).sample()]
                     problem.define(f'r{i}', sampled_outcome)
                 else:
                     sampled_outcome = EMPTY
 
-                state = self.next_state(state, str(sampled_outcome))
+                state = self.next_state(state, sampled_arrow, str(sampled_outcome))
 
                 episode.actions.append((sampled_arrow, str(sampled_outcome)))
                 episode.negative_actions.append([a for a in actions if a != sampled_arrow])
                 episode.negative_outcomes.append([o for o in outcomes if o != sampled_outcome])
+
+            print('Last state size:', state.shape)
 
             episode.success = problem.reward()
             return episode
@@ -86,8 +94,8 @@ class Policy(nn.Module):
 class RNNObservationEmbedding(nn.Module):
     def __init__(self, config):
         super().__init__()
-        embedding_size = 64
-        hidden_size = 128
+        embedding_size = 16
+        hidden_size = 32
         layers = 1
 
         self.rnn = nn.GRU(embedding_size, hidden_size // 2, layers, bidirectional=True)
@@ -104,7 +112,7 @@ class RNNObservationEmbedding(nn.Module):
 class GRUPolicy(Policy):
     def __init__(self, config, all_arrows):
         super().__init__()
-        hidden_size = 128
+        hidden_size = 32
 
         self.rnn_cell = nn.GRUCell(hidden_size, hidden_size)
 
@@ -136,13 +144,99 @@ class GRUPolicy(Policy):
         H = readout.shape[0]
         return outcome_embeddings.matmul(readout.unsqueeze(1)).squeeze(1) / H
 
+
+class RandomPolicy(Policy):
+    def __init__(self, config, all_arrows):
+        super().__init__()
+
+    def initial_state(self, observation: str) -> torch.Tensor:
+        return torch.tensor([])
+
+    def next_state(self, state: torch.Tensor, observation: str):
+        return state
+
+    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+        return torch.rand((len(arrows),))
+
+    def score_outcomes(self, outcomes: list[str], state: torch.Tensor) -> torch.Tensor:
+        return torch.rand((len(outcomes),))
+
+
+class DecisionTransformer(Policy):
+    def __init__(self, config, all_arrows):
+        super().__init__()
+
+        configuration = ReformerConfig(
+            feed_forward_size=128,
+            hidden_size=64,
+            vocab_size=128,
+            axial_pos_embds_dim=(32, 32), # Default (64, 128) -- must sum to hidden_size
+            axial_pos_shape_factors=(32, 32), # Default (32, 32) -- must multiply to seq len when training
+            bos_token_id=BOS,
+            eos_token_id=EOS,
+            pad_token_id=PAD,
+            is_decoder=True,
+            num_attention_heads=1,
+            num_hidden_layers=2,
+        )
+
+        # Initializing a Reformer model
+        self.transformer = ReformerModelWithLMHead(configuration)
+
+    def initial_state(self, observation: str) -> torch.Tensor:
+        return encode_batch([f'G (= x ?) S {observation}'],
+                            self.transformer.device,
+                            eos=False)[0]
+
+    def next_state(self, state: torch.Tensor, action: str, observation: str):
+        return torch.cat((state,
+                            encode_batch([f'A {action} O {observation}'],
+                                         device=state.device, bos=False, eos=False)[0]))
+
+    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+        return self._score_continuations(state, ' A ', arrows)
+
+    def score_outcomes(self, outcomes: list[str], action: str, state: torch.Tensor) -> torch.Tensor:
+        return self._score_continuations(state, f' A {action} C ', outcomes)
+
+    def _score_continuations(self,
+                             state: torch.Tensor,
+                             prefix: str,
+                             continuations: list[str]) -> torch.Tensor:
+
+        P = encode_batch([prefix for _ in continuations],
+                         bos=False, eos=False, device=state.device)
+        C = encode_batch([c for c in continuations],
+                         bos=False, eos=False, device=state.device)
+
+        input_ids = torch.cat((state.repeat((len(C), 1)), P, C), dim=1)
+        output = self.transformer(input_ids)
+
+        prediction = output.logits.softmax(dim=-1)
+
+        skip = state.shape[0] + P.shape[1]
+
+        action_labels = input_ids[:, skip:]
+        action_predictions = prediction[:, skip:, :]
+
+        mask = (input_ids != PAD)[:, skip:]
+        true_label_probability = action_predictions.gather(2, action_labels.unsqueeze(2)).squeeze(2)
+
+        logprobs = true_label_probability.log()
+        scores = (logprobs * mask.float()).sum(dim=1) / mask.float().sum(dim=1)
+
+        return scores
+
+
 if __name__ == '__main__':
     import environment
     e = environment.SingleDomainEnvironment('equations')
 
     arrows = e.sample_problem(0).actions()
 
-    policy = GRUPolicy({}, arrows)
+    # policy = GRUPolicy({}, arrows)
+    policy = DecisionTransformer({}, arrows)
+    policy.eval()
 
     problem = e.sample_problem(10)
     episode = policy.rollout(problem, 10)
