@@ -233,18 +233,21 @@ class DecisionTransformer(Policy):
     def pad_train_batch(self, tensor: torch.Tensor):
         m = self.train_len_multiple
         n = tensor.shape[-1]
-        needs_padding = n % m != 0
-        return F.pad(tensor, (0, (m - n % m))) if needs_padding else tensor
+        next_multiple_of_m = (n + m - 1) // m * m
+        return F.pad(tensor, (0, next_multiple_of_m - n))
 
 
 if __name__ == '__main__':
     import environment
+    from omegaconf import DictConfig, OmegaConf
     e = environment.SingleDomainEnvironment('equations')
 
     arrows = e.sample_problem(0).actions()
 
-    # policy = GRUPolicy({}, arrows)
-    policy = DecisionTransformer({}, arrows)
+    cfg = DictConfig({'reformer': {'hidden_size': 256,
+                                   'n_hidden_layers': 1,
+                                   'n_attention_heads': 1}})
+    policy = DecisionTransformer(cfg, arrows)
     policy.eval()
 
     problem = e.sample_problem(10)
