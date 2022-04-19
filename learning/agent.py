@@ -201,7 +201,7 @@ class LMPolicyLearning(LearningAgent):
         print('Accuracy:', acc)
 
         torch.save({
-            'policy': self.policy,
+            'agent': self,
             'accuracy': acc,
             }, f'lm.{self.n_evals}.pt')
 
