@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 
 
+import collections
 import itertools
 import logging
 from dataclasses import dataclass
+import random
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from environment import Environment
-from policy import Policy, GRUPolicy
+from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD
 
 
 class LearningAgent:
@@ -55,7 +58,7 @@ class RecurrentContrastivePolicyLearning(LearningAgent):
         self.policy = policy
         self.config = config
 
-        self.depth = 10
+        self.depth = 1
         self.training_successes = []
         self.examples = []
         self.training_problems_solved = 0
@@ -65,13 +68,12 @@ class RecurrentContrastivePolicyLearning(LearningAgent):
         return 'ReConPoLe'
 
     def learn_from_environment(self, environment):
-        for i in itertools.count():
-            print(i)
-            problem = environment.sample_problem()
+        for i in tqdm(range(10000)):
+            problem = environment.sample_problem(seed=i)
             rollout = self.policy.rollout(problem, depth=self.depth)
 
             if rollout.success:
-                print('Problem solved!!!', problem.starting_state())
+                print(i, problem.starting_state(), 'solved!')
                 self.training_problems_solved += 1
 
                 if self.training_problems_solved % self.optimize_every == 0:
@@ -80,6 +82,8 @@ class RecurrentContrastivePolicyLearning(LearningAgent):
                 # FIXME(gpoesia) add examples to training buffer
 
             self.training_successes.append(rollout.success)
+
+        print(self.training_problems_solved)
 
     def get_policy(self):
         return self.policy
@@ -97,13 +101,120 @@ class RecurrentContrastivePolicyLearning(LearningAgent):
 
         raise NotImplementedError()
 
+
+@LearningAgent.register
+class LMPolicyLearning(LearningAgent):
+    "Agent that learns to discriminate positive/negative examples of actions to take."
+
+    def __init__(self, policy, config):
+        self.policy = policy
+
+        assert hasattr(policy, 'lm'), \
+            'LMPolicyLearning only supports LM-based policies.'
+
+        self.config = config
+
+        self.depth = config['depth']
+        self.training_successes = []
+        self.examples = collections.deque(maxlen=config['max_examples'])
+        self.training_problems_solved = 0
+        self.optimize_every = config['optimize_every']
+        self.optimizer = torch.optim.Adam(policy.lm.parameters())
+        self.batch_size = config['batch_size']
+        self.eval_every = config['eval_every']
+
+        self.n_evals = 0
+
+    def name(self) -> str:
+        return 'LMPolicy'
+
+    def learn_from_environment(self, env: Environment):
+        for i in tqdm(range(self.config['episodes'])):
+            if i % self.eval_every == 0:
+                self.eval(env)
+
+            self.policy.eval()
+            self.policy.lm.eval()
+
+            problem = env.sample_problem(seed=i)
+            rollout = self.policy.rollout(problem, depth=self.depth)
+
+            if rollout.success:
+                print(i, problem.starting_state(), 'solved!')
+                self.training_problems_solved += 1
+
+                self.examples.append(rollout)
+
+                if self.training_problems_solved % self.optimize_every == 0:
+                    self.optimize()
+
+            self.training_successes.append(rollout.success)
+
+        print(self.training_problems_solved)
+
+    def get_policy(self):
+        return self.policy
+
+    def stats(self):
+        return "{} solutions found, {:.2f} training acc".format(
+            np.sum(self.training_successes),
+            np.mean(self.training_successes[-100:] or [0]))
+
+    def optimize(self):
+        if not self.examples:
+            return
+
+        self.policy.train()
+
+        for _ in range(self.config['gradient_steps']):
+            batch = random.choices(self.examples, k=self.batch_size)
+            t = encode_batch([e.format() for e in batch],
+                             self.policy.lm.device)
+
+            X = t[:, :-1]
+            y = t[:, 1:]
+
+            X = self.policy.pad_train_batch(X)
+            y = self.policy.pad_train_batch(y)
+
+            # Do not count PAD tokens in the loss
+            # (-100 is the mask ID from the huggingface API).
+            y[y == PAD] = -100
+
+            output = self.policy.lm(X, labels=y)
+            self.optimizer.zero_grad()
+            output.loss.backward()
+            self.optimizer.step()
+
+    def eval(self, env: Environment):
+        succ = []
+
+        print('Evaluating...')
+        self.policy.eval()
+
+        for i in tqdm(range(self.config['eval_problems'])):
+            problem = env.sample_problem(seed=10**7 + i)
+            rollout = self.policy.rollout(problem, depth=self.depth)
+            succ.append(rollout.success)
+
+        acc = np.mean(succ)
+        print('Accuracy:', acc)
+
+        torch.save({
+            'policy': self.policy,
+            'accuracy': acc,
+            }, f'lm.{self.n_evals}.pt')
+
+        self.n_evals += 1
+
+
 if __name__ == '__main__':
     import environment
-    e = environment.SingleDomainEnvironment('equations')
-    arrows = e.sample_problem(0).actions()
+    e = environment.SingleDomainEnvironment('equations-easy')
+    arrows = e.sample_problem(0).actions() + ['eval']
 
-    pi = GRUPolicy({}, arrows)
+    pi = DecisionTransformer({}, arrows)
 
-    agent = RecurrentContrastivePolicyLearning(pi, {})
+    agent = LMPolicyLearning(pi, {})
 
     agent.learn_from_environment(e)

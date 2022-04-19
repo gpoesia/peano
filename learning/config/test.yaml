@@ -1,0 +1,16 @@
+agent:
+    eval_every: 1000
+    eval_problems: 100
+    episodes: 100000
+    depth: 5
+    max_examples: 10000
+    optimize_every: 10
+    gradient_steps: 128
+    batch_size: 32
+
+policy:
+    type: DecisionTransformer
+    reformer:
+        feed_forward_size: 256
+        hidden_size: 256
+        axial_pos_embds_dim: [64, 192]

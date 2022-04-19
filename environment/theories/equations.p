@@ -13,9 +13,9 @@ real : type.
 *_comm : [(a : real) -> (b : real) -> (= (* a b) (* b a))].
 
 /* Associativity */
-+_assoc : [(a : real) -> (b : real) -> (= (+ a (+ b c)) (+ (+ a b) c))].
-+-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))].
-*/_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (/ (* a b) c) (* a (/ b c)))].
++_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (+ a (+ b c)) (+ (+ a b) c))].
++-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))]. /* (a + b) - c = a + (b - c) */
+*/_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (/ (* a b) c) (* a (/ b c)))]. /* (a * b) / c = a * (b / c) */
 
 /* Distributivity */
 +*_dist : [(a : real) -> (b : real) -> (c : real) -> (= (* (+ a b) c) (+ (* a c) (* b c)))].
@@ -58,8 +58,10 @@ verify eq_with_div {
 
 verify eq_with_nonzero_assumption {
     let x : real.
-    assume (!= x 0).
+    assume (!= x (- 5 5)).
     assume (= (/ 10 x) 5).
+
+    show (= (- 5 5) 0) by eval. /* Implicitly gives (!= x 0) */
 
     construct (* (/ 10 x) x) by *.
     show (= (* (/ 10 x) x) (* x (/ 10 x))) by *_comm.

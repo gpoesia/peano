@@ -20,6 +20,12 @@ class Episode:
     negative_actions: list[list[str]] = field(default_factory=list)
     negative_outcomes: list[list[str]] = field(default_factory=list)
 
+    def format(self):
+        return ';'.join(
+            ['G (= x ?)',
+             'S {self.initial_observation}'] +
+            ['A {a};O {o}' for (a, o) in self.actions])
+
 PAD = 0
 BOS = 1
 EOS = 2
@@ -84,8 +90,6 @@ class Policy(nn.Module):
                 episode.actions.append((sampled_arrow, str(sampled_outcome)))
                 episode.negative_actions.append([a for a in actions if a != sampled_arrow])
                 episode.negative_outcomes.append([o for o in outcomes if o != sampled_outcome])
-
-            print('Last state size:', state.shape)
 
             episode.success = problem.reward()
             return episode
@@ -167,37 +171,36 @@ class DecisionTransformer(Policy):
         super().__init__()
 
         configuration = ReformerConfig(
-            feed_forward_size=128,
-            hidden_size=64,
             vocab_size=128,
-            axial_pos_embds_dim=(32, 32), # Default (64, 128) -- must sum to hidden_size
-            axial_pos_shape_factors=(32, 32), # Default (32, 32) -- must multiply to seq len when training
+            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
+            # Default (64, 64) -- must multiply to seq len when training
+            axial_pos_embds=(64, config.reformer.hidden_size - 64),
             bos_token_id=BOS,
             eos_token_id=EOS,
             pad_token_id=PAD,
             is_decoder=True,
-            num_attention_heads=1,
-            num_hidden_layers=2,
+            **config['reformer']
         )
 
         # Initializing a Reformer model
-        self.transformer = ReformerModelWithLMHead(configuration)
+        self.lm = ReformerModelWithLMHead(configuration)
+        self.train_len_multiple = 32*32
 
     def initial_state(self, observation: str) -> torch.Tensor:
-        return encode_batch([f'G (= x ?) S {observation}'],
-                            self.transformer.device,
+        return encode_batch([f'G (= x ?);S {observation}'],
+                            self.lm.device,
                             eos=False)[0]
 
     def next_state(self, state: torch.Tensor, action: str, observation: str):
         return torch.cat((state,
-                            encode_batch([f'A {action} O {observation}'],
-                                         device=state.device, bos=False, eos=False)[0]))
+                          encode_batch([f';A {action};O {observation}'],
+                                       device=state.device, bos=False, eos=False)[0]))
 
     def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
-        return self._score_continuations(state, ' A ', arrows)
+        return self._score_continuations(state, ';A ', arrows)
 
     def score_outcomes(self, outcomes: list[str], action: str, state: torch.Tensor) -> torch.Tensor:
-        return self._score_continuations(state, f' A {action} C ', outcomes)
+        return self._score_continuations(state, f';A {action};O ', outcomes)
 
     def _score_continuations(self,
                              state: torch.Tensor,
@@ -206,11 +209,11 @@ class DecisionTransformer(Policy):
 
         P = encode_batch([prefix for _ in continuations],
                          bos=False, eos=False, device=state.device)
-        C = encode_batch([c for c in continuations],
+        C = encode_batch(continuations,
                          bos=False, eos=False, device=state.device)
 
         input_ids = torch.cat((state.repeat((len(C), 1)), P, C), dim=1)
-        output = self.transformer(input_ids)
+        output = self.lm(input_ids)
 
         prediction = output.logits.softmax(dim=-1)
 
@@ -226,6 +229,12 @@ class DecisionTransformer(Policy):
         scores = (logprobs * mask.float()).sum(dim=1) / mask.float().sum(dim=1)
 
         return scores
+
+    def pad_train_batch(self, tensor: torch.Tensor):
+        m = self.train_len_multiple
+        n = tensor.shape[-1]
+        needs_padding = n % m != 0
+        return F.pad(tensor, (0, (m - n % m))) if needs_padding else tensor
 
 
 if __name__ == '__main__':
