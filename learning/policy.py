@@ -33,16 +33,17 @@ EMPTY = '\x03'
 
 def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torch.LongTensor:
     if not b:
-        return torch.LongTensor()
+        return torch.tensor(dtype=torch.long, device=device)
 
     max_len = max(map(len, b))
 
-    return torch.LongTensor([[BOS] * bos +
-                             list(map(ord, o)) +
-                             [EOS] * eos +
-                             [PAD] * (max_len - len(o))
-                             for o in b],
-                            device=device)
+    return torch.tensor([[BOS] * bos +
+                         list(map(ord, o)) +
+                         [EOS] * eos +
+                         [PAD] * (max_len - len(o))
+                         for o in b],
+                        dtype=torch.long,
+                        device=device)
 
 class Policy(nn.Module):
     def __init__(self):
