@@ -143,7 +143,7 @@ class LMPolicyLearning(LearningAgent):
                 print(i, problem.starting_state(), 'solved!')
                 self.training_problems_solved += 1
 
-                self.examples.append(rollout)
+                self.examples.append(rollout.format())
 
                 if self.training_problems_solved % self.optimize_every == 0:
                     self.optimize()
@@ -168,14 +168,10 @@ class LMPolicyLearning(LearningAgent):
 
         for _ in range(self.config['gradient_steps']):
             batch = random.choices(self.examples, k=self.batch_size)
-            t = encode_batch([e.format() for e in batch],
-                             self.policy.lm.device)
+            t = encode_batch(batch, self.policy.lm.device)
 
-            X = t[:, :-1]
-            y = t[:, 1:]
-
-            X = self.policy.pad_train_batch(X)
-            y = self.policy.pad_train_batch(y)
+            X = self.policy.pad_train_batch(t[:, :-1])
+            y = self.policy.pad_train_batch(t[:, 1:])
 
             # Do not count PAD tokens in the loss
             # (-100 is the mask ID from the huggingface API).
