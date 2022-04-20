@@ -27,8 +27,8 @@ class Episode:
     def format(self):
         return ';'.join(
             ['G (= x ?)',
-             'S {self.initial_observation}'] +
-            ['A {a};O {o}' for (a, o) in self.actions])
+             f'S {self.initial_observation}'] +
+            [f'A {a};O {o}' for (a, o) in self.actions])
 
 PAD = 0
 BOS = 1
