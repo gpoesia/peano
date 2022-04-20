@@ -83,6 +83,9 @@ class Policy(nn.Module):
             state = self.initial_state(initial_observation)
 
             for i in range(depth):
+                if problem.reward():
+                    break
+
                 arrow_scores = self.score_arrows(actions, state)
                 sampled_arrow = actions[Categorical(arrow_scores.softmax(-1)).sample()]
 
@@ -181,7 +184,7 @@ class DecisionTransformer(Policy):
 
         configuration = ReformerConfig(
             vocab_size=128,
-            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
+            #            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
             # Default (64, 64) -- must multiply to seq len when training
             axial_pos_embds=(64, config.reformer.hidden_size - 64),
             bos_token_id=BOS,
@@ -193,7 +196,7 @@ class DecisionTransformer(Policy):
 
         # Initializing a Reformer model
         self.lm = ReformerModelWithLMHead(configuration)
-        self.train_len_multiple = 32*32
+        self.train_len_multiple = 64*64
 
     def initial_state(self, observation: str) -> torch.Tensor:
         return encode_batch([f'G (= x ?);S {observation}'],
@@ -222,7 +225,7 @@ class DecisionTransformer(Policy):
                          bos=False, eos=False, device=state.device)
 
         input_ids = torch.cat((state.repeat((len(C), 1)), P, C), dim=1)
-        output = self.lm(input_ids)
+        output = self.lm(input_ids, attention_mask=(input_ids != PAD).float())
 
         prediction = output.logits.softmax(dim=-1)
 

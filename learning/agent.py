@@ -186,7 +186,9 @@ class LMPolicyLearning(LearningAgent):
             # (-100 is the mask ID from the huggingface API).
             y[y == PAD] = -100
 
-            output = self.policy.lm(X, labels=y)
+            output = self.policy.lm(X,
+                                    attention_mask=(X != PAD).float(),
+                                    labels=y)
             self.optimizer.zero_grad()
 
             output.loss.backward()
