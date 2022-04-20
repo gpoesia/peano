@@ -232,7 +232,7 @@ class DecisionTransformer(Policy):
         skip = state.shape[0] + P.shape[1]
 
         action_labels = input_ids[:, skip:]
-        action_predictions = prediction[:, skip:, :]
+        action_predictions = prediction[:, skip-1:-1, :]
 
         mask = (input_ids != PAD)[:, skip:]
         true_label_probability = action_predictions.gather(2, action_labels.unsqueeze(2)).squeeze(2)
