@@ -179,8 +179,10 @@ class LMPolicyLearning(LearningAgent):
 
             t = encode_batch(batch, self.policy.lm.device)
 
-            X = self.policy.pad_train_batch(t[:, :-1])
-            y = self.policy.pad_train_batch(t[:, 1:])
+            # NOTE: The Reformer implementation already shifts X and y.
+            # Normally, we'd have to do this manually.
+            X = self.policy.pad_train_batch(t)
+            y = X.clone()
 
             # Do not count PAD tokens in the loss
             # (-100 is the mask ID from the huggingface API).
