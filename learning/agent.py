@@ -6,13 +6,18 @@ import itertools
 import logging
 from dataclasses import dataclass
 import random
+import logging
 
 import numpy as np
 import torch
 from tqdm import tqdm
+import wandb
 
 from environment import Environment
 from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD
+
+
+logger = logging.getLogger(__name__)
 
 
 class LearningAgent:
@@ -140,9 +145,8 @@ class LMPolicyLearning(LearningAgent):
             rollout = self.policy.rollout(problem, depth=self.depth)
 
             if rollout.success:
-                print(i, problem.starting_state(), 'solved!')
+                logger.debug('Problem #%d - %s solved!', i, problem.starting_state())
                 self.training_problems_solved += 1
-
                 self.examples.append(rollout.format())
 
                 if self.training_problems_solved % self.optimize_every == 0:
@@ -162,12 +166,17 @@ class LMPolicyLearning(LearningAgent):
 
     def optimize(self):
         if not self.examples:
+            logger.debug('Skipping optimization since we have no examples yet.')
             return
 
         self.policy.train()
 
+        logger.debug('Taking gradient steps.')
+
         for _ in range(self.config['gradient_steps']):
             batch = random.choices(self.examples, k=self.batch_size)
+            logger.debug('Batch: %s', batch)
+
             t = encode_batch(batch, self.policy.lm.device)
 
             X = self.policy.pad_train_batch(t[:, :-1])
@@ -179,22 +188,28 @@ class LMPolicyLearning(LearningAgent):
 
             output = self.policy.lm(X, labels=y)
             self.optimizer.zero_grad()
+
             output.loss.backward()
             self.optimizer.step()
+
+            wandb.log({'train_loss': output.loss})
+            logger.debug('{"train_loss": %f}', output.loss)
 
     def eval(self, env: Environment):
         succ = []
 
-        print('Evaluating...')
+        logger.info("Evaluating agent")
         self.policy.eval()
 
         for i in tqdm(range(self.config['eval_problems'])):
             problem = env.sample_problem(seed=10**7 + i)
             rollout = self.policy.rollout(problem, depth=self.depth)
             succ.append(rollout.success)
+            logger.debug('{"eval_idx": %d, "problem": "%s", "success": %d}',
+                         self.n_evals, problem.starting_state(), rollout.success)
 
         acc = np.mean(succ)
-        print('Accuracy:', acc)
+        logger.info('{"eval_idx": %d, "accuracy": %f}', self.n_evals, acc)
 
         torch.save({
             'agent': self,

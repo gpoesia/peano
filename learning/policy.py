@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Any
+import logging
 
 import torch
 from torch import nn
@@ -10,6 +11,9 @@ from torch.distributions.categorical import Categorical
 from transformers import ReformerModelWithLMHead, ReformerConfig
 
 from environment import Universe
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +48,10 @@ def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torc
                          for o in b],
                         dtype=torch.long,
                         device=device)
+
+def decode_batch(b: torch.LongTensor) -> list[str]:
+    return [''.join(chr(c) for c in row if c > EOS) for row in b]
+
 
 class Policy(nn.Module):
     def __init__(self):
@@ -228,6 +236,10 @@ class DecisionTransformer(Policy):
 
         logprobs = true_label_probability.log()
         scores = (logprobs * mask.float()).sum(dim=1) / mask.float().sum(dim=1)
+
+        logger.debug('{"location": "_score_continuations", "input_ids.shape": %s, "prefix": "%s",'
+                     '"continuations": %s, "scores": %s}',
+                     input_ids.shape, prefix, continuations, scores)
 
         return scores
 

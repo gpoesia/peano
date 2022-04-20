@@ -9,6 +9,7 @@ license = "MIT"
 python = "^3.9"
 torch = "^1.11.0"
 hydra-core = "^1.1.2"
+wandb = "^0.12.14"
 
 [tool.poetry.dev-dependencies]
 
