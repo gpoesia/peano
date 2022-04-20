@@ -145,7 +145,7 @@ class LMPolicyLearning(LearningAgent):
             rollout = self.policy.rollout(problem, depth=self.depth)
 
             if rollout.success:
-                logger.debug('Problem #%d - %s solved!', i, problem.starting_state())
+                logger.info('Problem #%d - %s solved!', i, problem.starting_state())
                 self.training_problems_solved += 1
                 self.examples.append(rollout.format())
 
@@ -166,7 +166,7 @@ class LMPolicyLearning(LearningAgent):
 
     def optimize(self):
         if not self.examples:
-            logger.debug('Skipping optimization since we have no examples yet.')
+            logger.info('Skipping optimization since we have no examples yet.')
             return
 
         self.policy.train()
@@ -210,6 +210,8 @@ class LMPolicyLearning(LearningAgent):
 
         acc = np.mean(succ)
         logger.info('{"eval_idx": %d, "accuracy": %f}', self.n_evals, acc)
+
+        wandb.log({"success_rate": acc})
 
         torch.save({
             'agent': self,
