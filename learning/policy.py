@@ -24,12 +24,6 @@ class Episode:
     negative_actions: list[list[str]] = field(default_factory=list)
     negative_outcomes: list[list[str]] = field(default_factory=list)
 
-    def format(self):
-        return ';'.join(
-            ['G (= x ?)',
-             f'S {self.initial_observation}'] +
-            [f'A {a};O {o}' for (a, o) in self.actions])
-
 PAD = 0
 BOS = 1
 EOS = 2
@@ -105,6 +99,10 @@ class Policy(nn.Module):
 
             episode.success = problem.reward()
             return episode
+
+    def extract_examples(self, episode) -> list[str]:
+        return [';'.join(['G (= x ?)', f'S {self.initial_observation}'] +
+                         [f'A {a};O {o}' for (a, o) in self.actions])]
 
 
 class RNNObservationEmbedding(nn.Module):

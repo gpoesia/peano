@@ -147,7 +147,7 @@ class LMPolicyLearning(LearningAgent):
             if rollout.success:
                 logger.info('Problem #%d - %s solved!', i, problem.starting_state())
                 self.training_problems_solved += 1
-                self.examples.append(rollout.format())
+                self.examples.append(self.policy.extract_examples(rollout))
 
                 if self.training_problems_solved % self.optimize_every == 0:
                     self.optimize()
