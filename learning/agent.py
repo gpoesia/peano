@@ -210,7 +210,7 @@ class LMPolicyLearning(LearningAgent):
 
         for i in tqdm(range(self.config['eval_problems'])):
             problem = env.sample_problem(seed=10**7 + i)
-            rollout = self.policy.rollout(problem, depth=self.depth)
+            rollout = self.policy.rollout(problem, depth=self.depth, temperature=0.01)
             succ.append(rollout.success)
             logger.debug('{"eval_idx": %d, "problem": "%s", "success": %d}',
                          self.n_evals, problem.starting_state(), rollout.success)

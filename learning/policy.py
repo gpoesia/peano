@@ -70,7 +70,7 @@ class Policy(nn.Module):
         'Implements the recurrent rule to update the hidden state.'
         raise NotImplementedError()
 
-    def rollout(self, problem: Universe, depth: int) -> Episode:
+    def rollout(self, problem: Universe, depth: int, temperature: float = 1) -> Episode:
         with torch.no_grad():
             initial_observation = problem.starting_state()
 
@@ -84,12 +84,14 @@ class Policy(nn.Module):
                     break
 
                 arrow_scores = self.score_arrows(actions, state)
-                sampled_arrow = actions[Categorical(arrow_scores.softmax(-1)).sample()]
+                sampled_arrow = actions[Categorical((arrow_scores / temperature)
+                                                    .softmax(-1)).sample()]
 
                 outcomes = problem.apply(sampled_arrow)
                 if outcomes:
                     outcomes_scores = self.score_outcomes(list(map(str, outcomes)), sampled_arrow, state)
-                    sampled_outcome = outcomes[Categorical(outcomes_scores.softmax(-1)).sample()]
+                    sampled_outcome = outcomes[Categorical((outcomes_scores / temperature)
+                                                           .softmax(-1)).sample()]
                     problem.define(f'r{i}', sampled_outcome)
                 else:
                     sampled_outcome = EMPTY
