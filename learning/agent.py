@@ -14,7 +14,7 @@ from tqdm import tqdm
 import wandb
 
 from environment import Environment
-from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD
+from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD, POSITIVE, NEGATIVE
 
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ class LMPolicyLearning(LearningAgent):
             if rollout.success:
                 logger.info('Problem #%d - %s solved!', i, problem.starting_state())
                 self.training_problems_solved += 1
-                self.examples.append(self.policy.extract_examples(rollout))
+                self.examples.extend(self.policy.extract_examples(rollout))
 
                 if self.training_problems_solved % self.optimize_every == 0:
                     self.optimize()
@@ -186,6 +186,9 @@ class LMPolicyLearning(LearningAgent):
 
             # Do not count PAD tokens in the loss
             # (-100 is the mask ID from the huggingface API).
+            # NOTE: One alternative here is to just model the POSITIVE/NEGATIVE tokens,
+            # instead of the whole sequence. This would be implemented here by just setting
+            # the labels everywhere else to -100.
             y[y == PAD] = -100
 
             output = self.policy.lm(X,

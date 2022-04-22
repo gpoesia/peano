@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 import logging
+import random
 
 import torch
 from torch import nn
@@ -27,6 +28,8 @@ class Episode:
 PAD = 0
 BOS = 1
 EOS = 2
+POSITIVE = ord(';')
+NEGATIVE = ord('$')
 EMPTY = '\x03'
 
 def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torch.LongTensor:
@@ -99,10 +102,6 @@ class Policy(nn.Module):
 
             episode.success = problem.reward()
             return episode
-
-    def extract_examples(self, episode) -> list[str]:
-        return [';'.join(['G (= x ?)', f'S {self.initial_observation}'] +
-                         [f'A {a};O {o}' for (a, o) in self.actions])]
 
 
 class RNNObservationEmbedding(nn.Module):
@@ -228,15 +227,13 @@ class DecisionTransformer(Policy):
         prediction = output.logits.softmax(dim=-1)
 
         skip = state.shape[0] + P.shape[1]
+        action_predictions = prediction[range(len(continuations)),
+                                        [skip + len(c) - 1 for c in continuations],
+                                        :]
 
-        action_labels = input_ids[:, skip:]
-        action_predictions = prediction[:, skip-1:-1, :]
-
-        mask = (input_ids != PAD)[:, skip:]
-        true_label_probability = action_predictions.gather(2, action_labels.unsqueeze(2)).squeeze(2)
-
-        logprobs = true_label_probability.log()
-        scores = (logprobs * mask.float()).sum(dim=1) / mask.float().sum(dim=1)
+        pos_logit = action_predictions[:, POSITIVE]
+        neg_logit = action_predictions[:, NEGATIVE]
+        scores = pos_logit - neg_logit
 
         logger.debug('{"location": "_score_continuations", "input_ids.shape": %s, "prefix": "%s",'
                      '"continuations": %s, "scores": %s}',
@@ -249,6 +246,28 @@ class DecisionTransformer(Policy):
         n = tensor.shape[-1]
         next_multiple_of_m = (n + m - 1) // m * m
         return F.pad(tensor, (0, next_multiple_of_m - n))
+
+    def extract_examples(self, episode) -> list[str]:
+        # Positive.
+        positive_path = ['G (= x ?)', f'S {episode.initial_observation}']
+
+        examples = []
+
+        for i, (a, o) in enumerate(episode.actions):
+            # Negative examples of actions.
+            examples.extend([positive_path + [f'A {neg}' + chr(NEGATIVE)]
+                             for neg in episode.negative_actions[i]])
+            positive_path.append(f'A {a}')
+
+            # Negative examples of outcomes.
+            examples.extend([positive_path + [f'O {neg}' + chr(NEGATIVE)]
+                             for neg in episode.negative_outcomes[i]])
+            positive_path.append(f'O {o}')
+
+        # Positive example
+        examples = random.sample(examples, k=min(5, len(examples)))
+        examples.append(positive_path + [''])
+        return list(map(lambda l: chr(POSITIVE).join(l), examples))
 
 
 if __name__ == '__main__':
