@@ -1,10 +1,9 @@
-use std::rc::Rc;
 use std::sync::Arc;
 use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 
-use crate::universe::{Term, Universe, Definition};
+use crate::universe::{Universe, Definition};
 use crate::domain::{Domain, Equations};
 
 #[pyclass(unsendable)]

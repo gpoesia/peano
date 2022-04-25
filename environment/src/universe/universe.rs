@@ -6,6 +6,8 @@ use std::io;
 use std::path::Path;
 
 use egg::*;
+use num_rational::Rational64;
+
 use super::term::{Context, Term, Definition, is_parameter_name, VerificationNames};
 use super::equivalence::AbstractSExp;
 use super::verifier::{VerificationScript, VerificationError};
@@ -200,9 +202,7 @@ impl Universe {
                         } else if let Some(t2_id) = self.is_represented(&t2) {
                             let t1_id = self.define_term(&t1, false, false)?;
                             self.egraph.union(t1_id, t2_id);
-                        }
-
-                        if cfg!(debug_assertions) {
+                        } else if cfg!(debug_assertions) {
                             println!("pruning ignored equality {} = {}", t1, t2);
                         }
 
@@ -409,12 +409,12 @@ impl Universe {
 
             for m in matches.iter() {
                 for s in &m.substs {
-                    let mut lhs_val : Option<i64> = None;
-                    let mut rhs_val : Option<i64> = None;
+                    let mut lhs_val : Option<Rational64> = None;
+                    let mut rhs_val : Option<Rational64> = None;
 
                     for n in self.egraph[s[lhs]].nodes.iter() {
                         if n.is_leaf() {
-                            if let Ok(n) = n.op.as_str().parse::<i64>() {
+                            if let Ok(n) = n.op.as_str().parse::<Rational64>() {
                                 lhs_val = Some(n);
                                 break;
                             }
@@ -423,7 +423,7 @@ impl Universe {
 
                     for n in self.egraph[s[rhs]].nodes.iter() {
                         if n.is_leaf() {
-                            if let Ok(n) = n.op.as_str().parse::<i64>() {
+                            if let Ok(n) = n.op.as_str().parse::<Rational64>() {
                                 rhs_val = Some(n);
                                 break;
                             }
@@ -484,7 +484,7 @@ impl Universe {
         None
     }
 
-    pub fn value_of(&self, t: &Rc<Term>) -> Option<i64> {
+    pub fn value_of(&self, t: &Rc<Term>) -> Option<Rational64> {
         let query: egg::Pattern<SymbolLang> = t.to_pattern().as_str().parse().unwrap();
         let matches = query.search(&self.egraph);
 
@@ -495,7 +495,7 @@ impl Universe {
         for m in matches.iter() {
             for n in self.egraph[m.eclass].nodes.iter() {
                 if n.is_leaf() {
-                    if let Ok(v) = n.op.as_str().parse::<i64>() {
+                    if let Ok(v) = n.op.as_str().parse::<Rational64>() {
                         return Some(v);
                     }
                 }
@@ -615,12 +615,12 @@ impl Universe {
     }
 }
 
-fn apply_builtin_binary_op(n1: i64, n2: i64, op: &str) -> Option<i64> {
+fn apply_builtin_binary_op(n1: Rational64, n2: Rational64, op: &str) -> Option<Rational64> {
     match op {
         "+" => { Some(n1 + n2) },
         "-" => { Some(n1 - n2) },
         "*" => { Some(n1 * n2) },
-        "/" if n2 != 0 && n1 % n2 == 0 => { Some(n1 / n2) },
+        "/" if *n2.numer() != 0 => { Some(n1 / n2) },
         "/" => None,
         _ => panic!("Unknown builtin binary operator {}", op)
     }
@@ -630,6 +630,7 @@ fn apply_builtin_binary_op(n1: i64, n2: i64, op: &str) -> Option<i64> {
 pub mod tests {
     use crate::universe::{Universe, Context, Term, Definition};
     use std::rc::Rc;
+    use num_rational::Rational64;
 
     #[test]
     fn test_create_universe() {
@@ -797,12 +798,12 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
         let x = Rc::new("x".parse().unwrap());
         let y = Rc::new("y".parse().unwrap());
 
-        assert_eq!(u.value_of(&x), Some(7));
+        assert_eq!(u.value_of(&x), Some(Rational64::from_integer(7)));
         assert_eq!(u.value_of(&y), None);
 
         u.apply(&"eval".to_string());
 
-        assert_eq!(u.value_of(&y), Some(49));
+        assert_eq!(u.value_of(&y), Some(Rational64::from_integer(49)));
     }
 
     #[test]
@@ -894,5 +895,33 @@ leq_trans : [(n : nat) -> (m : nat) -> (o : nat) -> (leq n m) -> (leq m o) -> (l
 
         // Last one.
         assert!(u.show_by(&"eval".to_string(), &"(= y 49)".parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn test_eval_with_fractions() {
+        let real_theory: Context = "
+        real : type.
+
+        = : [(t : type) -> t -> t -> type].
+        + : [real -> real -> real].
+        * : [real -> real -> real].
+        / : [real -> real -> real].
+
+        x : real.
+        y : real.
+        z : real.
+
+        x_eq : (= x (/ 10 -3)).
+        y_eq : (= y (* 1/2 1/2)).
+        z_eq : (= z (+ 1/2 1/3)).
+        "
+        .parse()
+        .unwrap();
+        let mut u = Universe::new();
+        u.incorporate(&real_theory);
+
+        assert!(u.show_by(&"eval".to_string(), &"(= x -10/3)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= y 1/4)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= z 5/6)".parse().unwrap()).is_ok());
     }
 }

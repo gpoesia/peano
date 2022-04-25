@@ -7,6 +7,7 @@ use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use tempfile::NamedTempFile;
+use num_rational::Rational64;
 
 use peano::universe::{Universe, Context, Term};
 
@@ -110,7 +111,7 @@ impl Shell {
         }
     }
 
-    pub fn value_of(&self, t: &str) -> Result<Option<i64>, String> {
+    pub fn value_of(&self, t: &str) -> Result<Option<Rational64>, String> {
         match t.parse::<Term>() {
             Err(e) => Err(e.to_string()),
             Ok(t) => Ok(self.universe.value_of(&Rc::new(t))),
