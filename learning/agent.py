@@ -123,10 +123,12 @@ class LMPolicyLearning(LearningAgent):
         self.training_successes = []
         self.examples = collections.deque(maxlen=config['max_examples'])
         self.training_problems_solved = 0
-        self.optimize_every = config['optimize_every']
         self.optimizer = torch.optim.Adam(policy.lm.parameters())
         self.batch_size = config['batch_size']
         self.eval_every = config['eval_every']
+        self.train_temperature = config['train_rollouts_temperature']
+        self.mask_non_decision_tokens = config['mask_non_decision_tokens']
+        self.only_optimize_when_solved = config['only_optimize_when_solved']
 
         self.n_evals = 0
 
@@ -139,18 +141,18 @@ class LMPolicyLearning(LearningAgent):
                 self.eval(env)
 
             self.policy.eval()
-            self.policy.lm.eval()
 
             problem = env.sample_problem(seed=i)
-            rollout = self.policy.rollout(problem, depth=self.depth)
+            rollout = self.policy.rollout(problem, depth=self.depth,
+                                          temperature=self.train_temperature)
 
             if rollout.success:
                 logger.info('Problem #%d - %s solved!', i, problem.starting_state())
                 self.training_problems_solved += 1
                 self.examples.extend(self.policy.extract_examples(rollout))
 
-                if self.training_problems_solved % self.optimize_every == 0:
-                    self.optimize()
+            if rollout.success or not self.only_optimize_when_solved:
+                self.optimize()
 
             self.training_successes.append(rollout.success)
 
@@ -184,12 +186,13 @@ class LMPolicyLearning(LearningAgent):
             X = self.policy.pad_train_batch(t)
             y = X.clone()
 
-            # Do not count PAD tokens in the loss
-            # (-100 is the mask ID from the huggingface API).
-            # NOTE: One alternative here is to just model the POSITIVE/NEGATIVE tokens,
-            # instead of the whole sequence. This would be implemented here by just setting
-            # the labels everywhere else to -100.
-            y[y == PAD] = -100
+            # Ignore non-decision tokens (or at least PAD tokens) when computing the loss
+            # (-100 is the label mask ID from the huggingface API).
+            if self.mask_non_decision_tokens:
+                y[(y != POSITIVE) & (y != NEGATIVE)] = -100
+            else:
+                y[y == PAD] = -100
+
 
             output = self.policy.lm(X,
                                     attention_mask=(X != PAD).float(),
