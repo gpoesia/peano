@@ -21,7 +21,8 @@ class SingleDomainEnvironment(Environment):
         self.domain = get_domain(domain)
 
     def sample_problem(self, seed: int = None):
-        seed = seed or random.randint(10**7, 10**8)
+        if seed is None:
+            seed = random.randint(10**7, 10**8)
         return self.domain.generate(seed)
 
 
