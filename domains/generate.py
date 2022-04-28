@@ -86,3 +86,14 @@ def format(
         return f"({f_r(e[:s])}{operator}{f_r(e[s+1:])})"
 
     return f_r(term)[1:-1]
+
+
+def sympy_solve_equation(equation: str):
+    """Solves using sympy, takes in a Peano formatted equation"""
+    x = Symbol("x") # Need this because of "eval"
+    equation = format(equation)
+    equation_parts = equation.split("=")
+    lhs = equation_parts[0]
+    rhs = equation_parts[1]
+    equation = f"{lhs} - ({rhs})"
+    return solve(eval(equation))
