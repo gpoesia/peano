@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 
@@ -64,6 +64,20 @@ impl PyUniverse {
     pub fn reward(&self) -> bool {
         self.domain.reward(&self.universe)
     }
+
+    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(Vec<String>, String)> {
+        let mut summary = self.universe.context_summary();
+        match ignore {
+            Some(v) => {
+                for (objs, _) in summary.iter_mut() {
+                    objs.retain(|s| !v.contains(s));
+                }
+                summary.retain(|s| s.0.len() > 0);
+                summary
+            },
+            None => summary,
+        }
+    }
 }
 
 #[pymethods]
@@ -87,15 +101,6 @@ thread_local!{
         let mut map : HashMap<&'static str, Arc<dyn Domain>> = HashMap::new();
         map.insert("equations", Arc::new(Equations::new_ct()));
         map.insert("equations-easy", Arc::new(Equations::new_easy()));
-        // map.insert("fractions", Arc::new(Fractions::new(4, 4)));
-        // map.insert("ternary-addition", Arc::new(TernaryAddition::new(15)));
-        // map.insert("ternary-addition-small", Arc::new(TernaryAddition::new(8)));
-        // map.insert("multiplication", Arc::new(Multiplication {}));
-        // map.insert("sorting", Arc::new(Sorting::new(12)));
-
-        // map.insert("key-to-door", Arc::new(KeyToDoor::new(5, 0.1)));
-        // map.insert("rubiks-cube-20", Arc::new(RubiksCube::new(20)));
-        // map.insert("rubiks-cube-50", Arc::new(RubiksCube::new(50)));
         map
     };
 }

@@ -164,7 +164,6 @@ impl Shell {
                                 Ok(n) => println!("{} definitions loaded.", n),
                                 Err(err) => println!("Error loading {}: {}", args, err)
                             }
-                            self.universe.canonicalize_equal_terms();
                         } else if command == "apply" {
                             self.apply(args);
                             println!("{}", self.universe.dump_context());

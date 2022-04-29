@@ -27,11 +27,21 @@ pub struct Universe {
     next_id: usize,
 }
 
+// HACK: This option is tunable for now, but we'll likely decide that we don't
+// want to deduplicate the context anymore (because it messes up with the summary).
+// The issue is that if we add an equality that constructs a new term that is equal
+// to an existing term, we lose a name in the context to talk about the second term
+// since its value will be in the same equivalence class as the original term, which
+// already has a name. Thus, deduplication makes equivalent objects not show up in
+// the summary, unless we make the summary not start from the context but instead
+// build up from the e-graph.
+const DEDUPLICATE_CONTEXT : bool = false;
+
 // Returns whether the string contains a valid `real` constant.
 // For now, we only handle integers in built-in operations.
 // In the future, we'll have to decide what do built-in reals really mean.
 fn is_real_const(s: &str) -> bool {
-    s.parse::<i64>().is_ok()
+    s.parse::<Rational64>().is_ok()
 }
 
 impl Universe {
@@ -92,17 +102,19 @@ impl Universe {
         self.eclass_name.clear();
 
         // Remove duplicate declarations from the context, populating eclass_names.
-        for name in self.context.insertion_order.iter() {
-            if let Some(def) = self.context.lookup(&name) {
-                if let Some(val) = &def.value {
-                    let eclass_id = self.is_represented(val).unwrap();
-                    let current_value = self.eclass_name.get(&eclass_id);
+        if DEDUPLICATE_CONTEXT {
+            for name in self.context.insertion_order.iter() {
+                if let Some(def) = self.context.lookup(&name) {
+                    if let Some(val) = &def.value {
+                        let eclass_id = self.is_represented(val).unwrap();
+                        let current_value = self.eclass_name.get(&eclass_id);
 
-                    match current_value {
-                        None => { self.eclass_name.insert(eclass_id, name.clone()); },
-                        Some(v) => {
-                            if v != name {
-                                duplicates.insert(name.clone());
+                        match current_value {
+                            None => { self.eclass_name.insert(eclass_id, name.clone()); },
+                            Some(v) => {
+                                if v != name {
+                                    duplicates.insert(name.clone());
+                                }
                             }
                         }
                     }
@@ -175,12 +187,6 @@ impl Universe {
     // or None if the term was rejected (the only case for now is if it's an equality object
     // such that both sides are new and constrain_equality is true).
     fn define_term(&mut self, t: &Rc<Term>, is_param: bool, constrain_equality: bool) -> Option<Id> {
-        // FIXME: This call causes repeated computation at every recursion level.
-        // If this becomes a performance issue in the future,
-        // we can either cache free variables (likely the best, can be done when constructing the term)
-        // or at least traverse bottom-up to minimize repeated work.
-        let has_free_variables = t.free_variables().len() > 0;
-
         match t.as_ref() {
             Term::Declaration{ name, dtype } => {
                 if !is_param {
@@ -191,7 +197,6 @@ impl Universe {
                         // This keeps equality-producing arrows from exploding the universe by
                         // adding two completely new objects every time they're applied (typically enabling
                         // even more equalities and objects to be produced in a follow-up application).
-                        // FIXME(gpoesia) we should add equality objects to the context somehow.
                         if !constrain_equality {
                             let t1_id = self.define_term(&t1, false, false)?;
                             let t2_id = self.define_term(&t2, false, false)?;
@@ -212,6 +217,12 @@ impl Universe {
 
                 let type_id = self.define_term(dtype, false, constrain_equality)?;
                 let name_id = self.egraph.add(SymbolLang::leaf(&name));
+
+                // FIXME: This call causes repeated computation at every recursion level.
+                // If this becomes a performance issue in the future,
+                // we can either cache free variables (likely the best, can be done when constructing the term)
+                // or at least traverse bottom-up to minimize repeated work.
+                let has_free_variables = t.free_variables().len() > 0;
 
                 if !has_free_variables && !is_parameter_name(name.as_str()) {
                     self.context.define(name.clone(),
@@ -265,6 +276,7 @@ impl Universe {
 
                 self.egraph.add(SymbolLang::new(IS_NODE, vec![app_id, type_id]));
 
+                let has_free_variables = t.free_variables().len() > 0;
                 if !has_free_variables {
                     let name = format!("!sub{}", self.next_term_id());
                     self.context.define(name.clone(),
@@ -610,8 +622,47 @@ impl Universe {
         self.context.to_string()
     }
 
-    pub fn canonicalize_equal_terms(&mut self) {
-        return;
+    // For each e-class that represents an object in the context,
+    // returns a set of strings representing the e-nodes in that e-class.
+    pub fn context_summary(&self) -> Vec<(Vec<String>, String)> {
+        let mut ans = Vec::new();
+
+        let mut objects_by_eclass: HashMap<Id, Vec<String>> = HashMap::new();
+        let mut eclass_dtype: HashMap<Id, String> = HashMap::new();
+
+        for name in self.context.insertion_order.iter() {
+            let eclass = self.egraph.lookup(SymbolLang::leaf(name.clone())).unwrap();
+            let strs = objects_by_eclass.entry(self.egraph.find(eclass)).or_default();
+
+            let def = self.context.lookup(name).unwrap();
+
+            if strs.len() == 0 {
+                let dtype_s = format!("{}", def.dtype.in_context(&self.context));
+                eclass_dtype.insert(eclass, dtype_s);
+            }
+
+            if let Some(value) = &def.value {
+                let s = format!("{}", value.in_context(&self.context));
+                strs.push(s);
+            }
+
+            if !name.starts_with("!sub") {
+                strs.push(name.clone());
+            }
+        }
+
+        for (eclass, mut objects) in objects_by_eclass.into_iter() {
+            // Find real constants that might belong to this e-class.
+            for node in &self.egraph[eclass].nodes {
+                if node.is_leaf() && is_real_const(node.op.as_str()) {
+                    objects.push(node.op.to_string());
+                }
+            }
+
+            ans.push((objects, eclass_dtype[&eclass].clone()));
+        }
+
+        ans
     }
 }
 

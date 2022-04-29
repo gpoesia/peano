@@ -42,6 +42,7 @@ def interact_with_environment(env):
 
     while not p.reward():
         actions = p.actions() + ['eval']
+        print('State:', env.format_state(p, set(actions + ['real'])))
         a = _choose_from_list('Arrow to apply:', actions)
 
         prob *= 1 / len(actions)
@@ -51,7 +52,7 @@ def interact_with_environment(env):
 
         prob *= 1 / len(outcomes)
 
-        p.define(f'r{i}', o)
+        p.define(f'!sub{i}', o)
         i += 1
 
     print('Solved in', i, 'steps!')

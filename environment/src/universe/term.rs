@@ -137,7 +137,9 @@ impl Context {
     // Removes objects from insertion_order that have been destroied, to speed-up iteration.
     pub fn rebuild(&mut self) {
         self.insertion_order = self.insertion_order
-                                   .drain(0..).filter(|p| self.definitions.contains_key(p)).collect();
+                                   .drain(0..)
+                                   .filter(|p| self.definitions.contains_key(p))
+                                   .collect();
     }
 
     pub fn get_type_constant(&self) -> &Rc<Term> {
@@ -330,9 +332,13 @@ pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -
     }
 }
 
-impl Term {
+impl<'a> Term {
     pub fn rc(&self) -> Rc<Term> {
         Rc::new(self.clone())
+    }
+
+    pub fn in_context(self: &'a Rc<Term>, context: &'a Context) -> TermInContext<'a> {
+        TermInContext { term: &self, context }
     }
 
     pub fn new_equality(lhs: Rc<Term>, rhs: Rc<Term>) -> Rc<Term> {
@@ -554,6 +560,61 @@ impl Term {
                 arguments: vec![t1.clone(), t2.clone()],
             })
     }
+
+    pub fn fmt_in_context(self: &Rc<Term>, context: &Context, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.as_ref() {
+            Term::Atom { name } => {
+                if name.starts_with("!sub") {
+                    if let Some(Definition { dtype: _, value: Some(value) }) = context.lookup(&name) {
+                        return value.fmt_in_context(context, f);
+                    }
+                }
+                write!(f, "{}",
+                       if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
+                       else { &name[0..] })
+            },
+            Term::Declaration { name, dtype } => {
+                write!(f, "{} : ", if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
+                                   else { &name[..] })?;
+                dtype.fmt_in_context(context, f)
+            },
+            Term::Arrow { input_types, output_type } => {
+                write!(f, "[")?;
+                for t in input_types.iter() {
+                    match t.as_ref() {
+                        Term::Declaration { name, dtype } => {
+                            write!(f, "({} : ", &name[1..])?;
+                            dtype.fmt_in_context(context, f)?;
+                            write!(f, ") -> ")
+                        },
+                        _ => write!(f, "{} -> ", t),
+                    }?;
+                }
+                output_type.fmt_in_context(context, f)?;
+                write!(f, "]")
+            },
+            Term::Application { function, arguments } => {
+                write!(f, "(")?;
+                function.fmt_in_context(context, f)?;
+                for a in arguments.iter() {
+                    write!(f, " ")?;
+                    a.fmt_in_context(context, f)?;
+                }
+                write!(f, ")")
+            },
+            Term::Lambda { parameters, body } => {
+                write!(f, "lambda (")?;
+                for (i, p) in parameters.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    p.fmt_in_context(context, f)?;
+                }
+                write!(f, ") ")?;
+                body.fmt_in_context(context, f)
+            }
+        }
+    }
 }
 
 impl FromStr for Term {
@@ -603,6 +664,17 @@ impl fmt::Display for Term {
                 write!(f, ") {}", body)
             }
         }
+    }
+}
+
+pub struct TermInContext<'a> {
+    term: &'a Rc<Term>,
+    context: &'a Context,
+}
+
+impl<'a> fmt::Display for TermInContext<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.term.fmt_in_context(self.context, f)
     }
 }
 

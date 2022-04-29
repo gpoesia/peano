@@ -15,6 +15,10 @@ class Environment:
         'Returns the appropriate environment given the experiment configuration options.'
         return SingleDomainEnvironment(config.get('domain'))
 
+    def format_state(self, universe, ignore):
+        return '; '.join(f'{{{"=".join(set(vals))}}} : {dtype}'
+                         for vals, dtype in universe.state(ignore))
+
 
 class SingleDomainEnvironment(Environment):
     def __init__(self, domain: str):
