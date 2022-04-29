@@ -4,6 +4,8 @@ from random import randint, choices, choice
 from typing import List
 from sympy.solvers import solve
 from sympy import Symbol
+import click
+import pickle
 
 
 class TermFormatType(Enum):
@@ -90,10 +92,46 @@ def format(
 
 def sympy_solve_equation(equation: str):
     """Solves using sympy, takes in a Peano formatted equation"""
-    x = Symbol("x") # Need this because of "eval"
+    x = Symbol("x")  # Need this because of "eval"
     equation = format(equation)
     equation_parts = equation.split("=")
     lhs = equation_parts[0]
     rhs = equation_parts[1]
     equation = f"{lhs} - ({rhs})"
     return solve(eval(equation))
+
+
+@click.command()
+@click.option("--n", default=100, help="Number of unique equations to generate.")
+@click.option("--degree", default=1, help="The maximum degree of a generated equation.")
+@click.option("--complexity", default=3, help="The complexity of generated equations.")
+@click.option("--output", default="equations.pkl", help="Output filepath (.pkl)")
+def generate(n, degree, complexity, output):
+    """Generates N equations of degree DEGREE in a pickled file OUTPUT"""
+    config = TermConfig(
+        [str(i) for i in range(10)],
+        [
+            TermFormat(TermFormatType.LOWER_DEGREE, 0.25, 0),
+            TermFormat(TermFormatType.LOWER_DEGREE_PRODUCT, 0.25, 1),
+            TermFormat(TermFormatType.DEGREE_SUM, 0.25, 1),
+            TermFormat(TermFormatType.X, 0.25, 0),
+        ],
+        complexity,
+    )
+    equations = dict()
+    while len(equations) < n:
+        equation = (
+            f"(= {generate_term(degree, config)} {generate_term(degree, config)})"
+        )
+        if equation in equations.keys():
+            continue
+        solution = sympy_solve_equation(equation)
+        if len(solution) == 0:
+            continue
+        solution = str(solution[0])  # Works for linear equations
+        equations[equation] = solution
+    with open(output, 'ab') as output:
+        pickle.dump(equations, output)
+
+if __name__ == "__main__":
+    generate()
