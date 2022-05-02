@@ -1,10 +1,18 @@
 use std::sync::Arc;
+<<<<<<< HEAD
 use std::collections::{HashMap, HashSet};
+=======
+use std::collections::HashMap;
+
+>>>>>>> f897b0a (interact: Add interactive test with random rollouts)
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::Python;
+use rand::Rng;
+use rand_pcg::Pcg64;
 
 use crate::universe::{Universe, Definition};
-use crate::domain::{Domain, Equations};
+use crate::domain::{new_rng, Domain, Equations};
 
 #[pyclass(unsendable)]
 struct PyUniverse {
@@ -65,6 +73,7 @@ impl PyUniverse {
         self.domain.reward(&self.universe)
     }
 
+<<<<<<< HEAD
     pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(Vec<String>, String)> {
         let mut summary = self.universe.context_summary();
         match ignore {
@@ -77,6 +86,32 @@ impl PyUniverse {
             },
             None => summary,
         }
+=======
+    pub fn random_rollout(&mut self, actions: Vec<String>, n_actions: u32, seed: u64) -> bool {
+        let mut rng: Pcg64 = new_rng(seed);
+
+        for i in 0..n_actions {
+            let actions: Vec<&String> = if actions.len() > 0 {
+                actions.iter().collect()
+            } else{
+                self.universe.actions().collect()
+            };
+
+            let j = rng.gen_range(0..actions.len());
+
+            let results = self.universe.application_results(&actions[j]);
+
+            if results.len() == 0 {
+                continue;
+            }
+
+            let j = rng.gen_range(0..results.len());
+            self.universe.define(format!("r{}", i), results[j].clone(), true);
+            self.universe.rebuild();
+        }
+
+        self.reward()
+>>>>>>> f897b0a (interact: Add interactive test with random rollouts)
     }
 }
 

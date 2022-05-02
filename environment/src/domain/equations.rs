@@ -1,7 +1,6 @@
 use std::rc::Rc;
-use crate::universe::{Term, Universe, Context, Definition};
+use crate::universe::{Term, Universe, Definition};
 
-use commoncore::domain::{Domain as CCDomain};
 use commoncore::domain::equations::{Equations as CCEquations, Term as CCTerm};
 
 use super::Domain;

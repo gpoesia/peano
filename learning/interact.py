@@ -5,8 +5,9 @@
 import argparse
 
 import torch
-from environment import *
+from tqdm import tqdm
 
+from environment import *
 import util
 
 
@@ -41,7 +42,7 @@ def interact_with_environment(env):
     prob = 1
 
     while not p.reward():
-        actions = p.actions() + ['eval']
+        actions = p.actions()
         print('State:', env.format_state(p, set(actions + ['real'])))
         a = _choose_from_list('Arrow to apply:', actions)
 
@@ -59,15 +60,37 @@ def interact_with_environment(env):
     print('Probability of this trajectory for a random policy:', prob)
 
 
+def try_random_rollouts(env, n_problems=10**3, n_steps=30):
+    solved = []
+
+    print('Actions:', env.sample_problem(0).actions())
+    actions = input('Allowed actions (default: all): ')
+
+    actions = actions.split(',') or p.actions()
+
+    print('Using actions', actions)
+
+    for i in tqdm(range(n_problems)):
+        p = env.sample_problem(3)
+        if p.random_rollout(actions, n_steps, i):
+            solved.append(p.starting_state())
+
+    print(len(solved), 'solved:')
+
+    for p in solved:
+        print(p)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
+    parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
     parser.add_argument('--gpu', help='GPU device to use.', type=int)
 
     opt = parser.parse_args()
 
-    env = SingleDomainEnvironment('equations-easy')
+    env = SingleDomainEnvironment('equations')
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
 
@@ -75,3 +98,5 @@ if __name__ == '__main__':
         run_agent(opt.agent, env, device)
     elif opt.environment:
         interact_with_environment(env)
+    elif opt.random_rollouts:
+        try_random_rollouts(env)

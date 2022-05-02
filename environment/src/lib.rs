@@ -6,5 +6,3 @@ extern crate commoncore;
 pub mod universe;
 pub mod domain;
 mod python;
-
-use pyo3::prelude::*;

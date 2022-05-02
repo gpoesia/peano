@@ -72,6 +72,7 @@ impl Context {
                             };
         c.definitions.insert(TYPE.to_string(), vec![type_const_def.clone()]);
         c.definitions.insert(PROP.to_string(), vec![type_const_def]);
+        c.arrows.insert(String::from("eval"));
         c
     }
 
