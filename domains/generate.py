@@ -12,8 +12,10 @@ from tqdm import tqdm
 class TermFormatType(Enum):
     LOWER_DEGREE = 0
     LOWER_DEGREE_PRODUCT = 1
+    DIVISION_BY_CONSTANT = 2
     DEGREE_SUM = 3
-    X = 4
+    DEGREE_SUBTRACTION = 4
+    X = 5
 
 
 @dataclass
@@ -49,8 +51,12 @@ def generate_term(degree: int, config: TermConfig) -> str:
             case TermFormatType.LOWER_DEGREE_PRODUCT:
                 l = randint(0, d - 1)
                 return f"(* {gt_r(d-l, c)} {gt_r(l, c)})"
+            case TermFormatType.DIVISION_BY_CONSTANT:
+                return f"(/ {gt_r(d, c)} {gt_r(0, c)})"
             case TermFormatType.DEGREE_SUM:
                 return f"(+ {gt_r(d, c)} {gt_r(d, c)})"
+            case TermFormatType.DEGREE_SUBTRACTION:
+                return f"(- {gt_r(d, c)} {gt_r(d, c)})"
             case TermFormatType.X:
                 # TODO: higher powers of x as well
                 return "x"
@@ -114,7 +120,9 @@ def generate(n, degree, complexity, output):
         [
             TermFormat(TermFormatType.LOWER_DEGREE, 0.25, 0),
             TermFormat(TermFormatType.LOWER_DEGREE_PRODUCT, 0.25, 1),
+            TermFormat(TermFormatType.DIVISION_BY_CONSTANT, 0.25, 1),
             TermFormat(TermFormatType.DEGREE_SUM, 0.25, 1),
+            TermFormat(TermFormatType.DEGREE_SUBTRACTION, 0.25, 1),
             TermFormat(TermFormatType.X, 0.25, 0),
         ],
         complexity,
@@ -127,7 +135,10 @@ def generate(n, degree, complexity, output):
             )
             if equation in equations.keys():
                 continue
-            solution = sympy_solve_equation(equation)
+            try:
+                solution = sympy_solve_equation(equation)
+            except:
+                continue
             if len(solution) == 0:
                 continue
             solution = str(solution[0])  # Works for linear equations
