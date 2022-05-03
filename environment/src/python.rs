@@ -1,10 +1,5 @@
 use std::sync::Arc;
-<<<<<<< HEAD
 use std::collections::{HashMap, HashSet};
-=======
-use std::collections::HashMap;
-
->>>>>>> f897b0a (interact: Add interactive test with random rollouts)
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::Python;
@@ -12,7 +7,7 @@ use rand::Rng;
 use rand_pcg::Pcg64;
 
 use crate::universe::{Universe, Definition};
-use crate::domain::{new_rng, Domain, Equations};
+use crate::domain::{new_rng, Domain, Equations, Blank};
 
 #[pyclass(unsendable)]
 struct PyUniverse {
@@ -73,7 +68,24 @@ impl PyUniverse {
         self.domain.reward(&self.universe)
     }
 
-<<<<<<< HEAD
+    pub fn incorporate(&mut self, context: &str) -> PyResult<bool> {
+        match context.parse() {
+            Ok(context) => {
+                self.universe.incorporate(&context);
+                Ok(true)
+            },
+            Err(e) => Err(PyValueError::new_err(format!("Failed to parse context: {}", e)))
+        }
+    }
+
+    pub fn clone(&self) -> PyUniverse {
+        PyUniverse {
+            universe: self.universe.clone(),
+            start_state: self.start_state.clone(),
+            domain: self.domain.clone(),
+        }
+    }
+
     pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(Vec<String>, String)> {
         let mut summary = self.universe.context_summary();
         match ignore {
@@ -86,7 +98,8 @@ impl PyUniverse {
             },
             None => summary,
         }
-=======
+    }
+
     pub fn random_rollout(&mut self, actions: Vec<String>, n_actions: u32, seed: u64) -> bool {
         let mut rng: Pcg64 = new_rng(seed);
 
@@ -111,7 +124,6 @@ impl PyUniverse {
         }
 
         self.reward()
->>>>>>> f897b0a (interact: Add interactive test with random rollouts)
     }
 }
 
@@ -134,6 +146,7 @@ impl PyDomain {
 thread_local!{
     pub static DOMAINS: HashMap<&'static str, Arc<dyn Domain>> = {
         let mut map : HashMap<&'static str, Arc<dyn Domain>> = HashMap::new();
+        map.insert("blank", Arc::new(Blank::new()));
         map.insert("equations", Arc::new(Equations::new_ct()));
         map.insert("equations-easy", Arc::new(Equations::new_easy()));
         map
