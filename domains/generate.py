@@ -6,6 +6,7 @@ from sympy.solvers import solve
 from sympy import Symbol
 import click
 import pickle
+from tqdm import tqdm
 
 
 class TermFormatType(Enum):
@@ -119,17 +120,19 @@ def generate(n, degree, complexity, output):
         complexity,
     )
     equations = dict()
-    while len(equations) < n:
-        equation = (
-            f"(= {generate_term(degree, config)} {generate_term(degree, config)})"
-        )
-        if equation in equations.keys():
-            continue
-        solution = sympy_solve_equation(equation)
-        if len(solution) == 0:
-            continue
-        solution = str(solution[0])  # Works for linear equations
-        equations[equation] = solution
+    with tqdm(total=n) as pbar:
+        while len(equations) < n:
+            equation = (
+                f"(= {generate_term(degree, config)} {generate_term(degree, config)})"
+            )
+            if equation in equations.keys():
+                continue
+            solution = sympy_solve_equation(equation)
+            if len(solution) == 0:
+                continue
+            solution = str(solution[0])  # Works for linear equations
+            equations[equation] = solution
+            pbar.update(1)
     with open(output, 'ab') as output:
         pickle.dump(equations, output)
 
