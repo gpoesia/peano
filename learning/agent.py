@@ -13,7 +13,7 @@ import torch
 from tqdm import tqdm
 import wandb
 
-from environment import Environment
+from domain import Domain, EquationsDomain
 from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD, POSITIVE, NEGATIVE
 
 
@@ -30,7 +30,7 @@ class LearningAgent:
 
     subtypes: dict = {}
 
-    def learn_from_environment(self, e: Environment):
+    def learn_domain(self, d: Domain):
         "Lets the agent learn by interaction using any algorithm."
         raise NotImplementedError()
 
@@ -78,7 +78,7 @@ class RecurrentContrastivePolicyLearning(LearningAgent):
             rollout = self.policy.rollout(problem, depth=self.depth)
 
             if rollout.success:
-                print(i, problem.starting_state(), 'solved!')
+                print(i, problem.description, 'solved!')
                 self.training_problems_solved += 1
 
                 if self.training_problems_solved % self.optimize_every == 0:
@@ -135,19 +135,20 @@ class LMPolicyLearning(LearningAgent):
     def name(self) -> str:
         return 'LMPolicy'
 
-    def learn_from_environment(self, env: Environment):
+    def learn_domain(self, d: Domain):
         for i in tqdm(range(self.config['episodes'])):
             if i % self.eval_every == 0:
-                self.eval(env)
+                self.eval(d)
 
             self.policy.eval()
 
-            problem = env.sample_problem(seed=i)
+            problem = d.generate(seed=i)
             rollout = self.policy.rollout(problem, depth=self.depth,
                                           temperature=self.train_temperature)
 
             if rollout.success:
-                logger.info('Problem #%d - %s solved!', i, problem.starting_state())
+                logger.info('Problem #%d - %s solved!',
+                            i, problem.universe.description)
                 self.training_problems_solved += 1
                 self.examples.extend(self.policy.extract_examples(rollout))
 
@@ -205,18 +206,18 @@ class LMPolicyLearning(LearningAgent):
             wandb.log({'train_loss': output.loss})
             logger.debug('{"train_loss": %f}', output.loss)
 
-    def eval(self, env: Environment):
+    def eval(self, d: Domain):
         succ = []
 
         logger.info("Evaluating agent")
         self.policy.eval()
 
         for i in tqdm(range(self.config['eval_problems'])):
-            problem = env.sample_problem(seed=10**7 + i)
-            rollout = self.policy.rollout(problem, depth=self.depth, temperature=0.01)
+            problem = d.generate(seed=10**7 + i)
+            rollout = self.policy.rollout(d, problem, depth=self.depth, temperature=0.01)
             succ.append(rollout.success)
             logger.debug('{"eval_idx": %d, "problem": "%s", "success": %d}',
-                         self.n_evals, problem.starting_state(), rollout.success)
+                         self.n_evals, problem.description, rollout.success)
 
         acc = np.mean(succ)
         logger.info('{"eval_idx": %d, "accuracy": %f}', self.n_evals, acc)
@@ -233,11 +234,8 @@ class LMPolicyLearning(LearningAgent):
 
 if __name__ == '__main__':
     import environment
-    e = environment.SingleDomainEnvironment('equations-easy')
-    arrows = e.sample_problem(0).actions() + ['eval']
-
-    pi = DecisionTransformer({}, arrows)
+    d = EquationsDomain()
+    pi = DecisionTransformer({}, list(d.action_set))
 
     agent = LMPolicyLearning(pi, {})
-
-    agent.learn_from_environment(e)
+    agent.learn_domain(d)

@@ -11,6 +11,7 @@ import wandb
 from agent import LMPolicyLearning
 from policy import DecisionTransformer
 from environment import SingleDomainEnvironment
+from domain import EquationsDomain
 
 
 def setup_wandb(jobCfg: DictConfig):
@@ -24,17 +25,14 @@ def setup_wandb(jobCfg: DictConfig):
 def main(cfg: DictConfig):
     setup_wandb(cfg.job)
 
-    env = SingleDomainEnvironment('equations-easy')
-    arrows = env.sample_problem(0).actions() + ['eval']
-
-    policy = DecisionTransformer(cfg['policy'], arrows)
+    domain = EquationsDomain()
+    policy = DecisionTransformer(cfg['policy'])
 
     if cfg['policy'].get('gpu') is not None:
         policy.to(torch.device(cfg['policy']['gpu']))
 
     agent = LMPolicyLearning(policy, cfg['agent'])
-
-    agent.learn_from_environment(env)
+    agent.learn_domain(domain)
 
 if __name__ == '__main__':
     main()

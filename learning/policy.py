@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 import logging
 import random
+from domain import Domain
 
 import torch
 from torch import nn
@@ -22,6 +23,7 @@ class Episode:
     initial_observation: str
     success: bool = False
     actions: list[tuple[str, str]] = field(default_factory=list)
+    states: list[str] = field(default_factory=list)
     negative_actions: list[list[str]] = field(default_factory=list)
     negative_outcomes: list[list[str]] = field(default_factory=list)
 
@@ -70,39 +72,39 @@ class Policy(nn.Module):
         'Implements the recurrent rule to update the hidden state.'
         raise NotImplementedError()
 
-    def rollout(self, problem: Universe, depth: int, temperature: float = 1) -> Episode:
+    def rollout(self, domain: Domain, problem: Universe,
+                depth: int, temperature: float = 1) -> Episode:
         with torch.no_grad():
-            initial_observation = problem.starting_state()
+            episode = Episode(problem.description)
 
-            episode = Episode(initial_observation)
-            actions = problem.actions() + ['eval']
-
-            state = self.initial_state(initial_observation)
+            state = domain.state(problem)
 
             for i in range(depth):
-                if problem.reward():
+                if domain.reward(problem):
                     break
 
+                actions = domain.actions(problem)
                 arrow_scores = self.score_arrows(actions, state)
                 sampled_arrow = actions[Categorical((arrow_scores / temperature)
                                                     .softmax(-1)).sample()]
 
-                outcomes = problem.apply(sampled_arrow)
+                outcomes = problem.universe.apply(sampled_arrow)
                 if outcomes:
                     outcomes_scores = self.score_outcomes(list(map(str, outcomes)), sampled_arrow, state)
                     sampled_outcome = outcomes[Categorical((outcomes_scores / temperature)
                                                            .softmax(-1)).sample()]
-                    problem.define(f'r{i}', sampled_outcome)
+                    problem.universe.define(f'!sub{i}', sampled_outcome)
                 else:
                     sampled_outcome = EMPTY
 
-                state = self.next_state(state, sampled_arrow, str(sampled_outcome))
+                state = domain.state(problem)
 
+                episode.states.append(state)
                 episode.actions.append((sampled_arrow, str(sampled_outcome)))
                 episode.negative_actions.append([a for a in actions if a != sampled_arrow])
                 episode.negative_outcomes.append([o for o in outcomes if o != sampled_outcome])
 
-            episode.success = problem.reward()
+            episode.success = domain.reward(problem)
             return episode
 
 
@@ -178,7 +180,7 @@ class RandomPolicy(Policy):
 
 
 class DecisionTransformer(Policy):
-    def __init__(self, config, all_arrows):
+    def __init__(self, config):
         super().__init__()
 
         configuration = ReformerConfig(
@@ -198,26 +200,31 @@ class DecisionTransformer(Policy):
         self.train_len_multiple = 64*64
 
     def initial_state(self, observation: str) -> torch.Tensor:
+        raise NotImplementedError()
         return encode_batch([f'G (= x ?);S {observation}'],
                             self.lm.device,
                             eos=False)[0]
 
     def next_state(self, state: torch.Tensor, action: str, observation: str):
+        raise NotImplementedError()
         return torch.cat((state,
                           encode_batch([f';A {action};O {observation}'],
                                        device=state.device, bos=False, eos=False)[0]))
 
-    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
         return self._score_continuations(state, ';A ', arrows)
 
-    def score_outcomes(self, outcomes: list[str], action: str, state: torch.Tensor) -> torch.Tensor:
+    def score_outcomes(self, outcomes: list[str], action: str, state: str) -> torch.Tensor:
         return self._score_continuations(state, f';A {action};O ', outcomes)
 
     def _score_continuations(self,
-                             state: torch.Tensor,
+                             state: str,
                              prefix: str,
                              continuations: list[str]) -> torch.Tensor:
 
+        state = encode_batch([f'S {state}'],
+                             self.lm.device,
+                             eos=False)[0]
         P = encode_batch([prefix for _ in continuations],
                          bos=False, eos=False, device=state.device)
         C = encode_batch(continuations,
@@ -251,25 +258,29 @@ class DecisionTransformer(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         # Positive.
-        positive_path = ['G (= x ?)', f'S {episode.initial_observation}']
+        def format_example(s, a, c):
+            return f'S {s}; {a}{c}'
 
         examples = []
 
         for i, (a, o) in enumerate(episode.actions):
             # Negative examples of actions.
-            examples.extend([positive_path + [f'A {neg}' + chr(NEGATIVE)]
+            examples.extend([format_example(episode.states[i],
+                                            f'A {neg}', chr(NEGATIVE))
                              for neg in episode.negative_actions[i]])
-            positive_path.append(f'A {a}')
 
             # Negative examples of outcomes.
-            examples.extend([positive_path + [f'O {neg}' + chr(NEGATIVE)]
+            examples.extend([format_example(episode.states[i],
+                                            f'A {a}; O {neg}', chr(NEGATIVE))
                              for neg in episode.negative_outcomes[i]])
-            positive_path.append(f'O {o}')
 
-        # Positive example
-        examples = random.sample(examples, k=min(5, len(examples)))
-        examples.append(positive_path + [''])
-        return list(map(lambda l: chr(POSITIVE).join(l), examples))
+            # Positives
+            examples.append(format_example(episode.states[i],
+                                           f'A {a}', chr(POSITIVE)))
+            examples.append(format_example(episode.states[i],
+                                           f'A {a}; O {o}', chr(POSITIVE)))
+
+        return examples
 
 
 if __name__ == '__main__':
