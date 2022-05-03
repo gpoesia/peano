@@ -143,12 +143,12 @@ class LMPolicyLearning(LearningAgent):
             self.policy.eval()
 
             problem = d.generate(seed=i)
-            rollout = self.policy.rollout(problem, depth=self.depth,
+            rollout = self.policy.rollout(d, problem, depth=self.depth,
                                           temperature=self.train_temperature)
 
             if rollout.success:
                 logger.info('Problem #%d - %s solved!',
-                            i, problem.universe.description)
+                            i, problem.description)
                 self.training_problems_solved += 1
                 self.examples.extend(self.policy.extract_examples(rollout))
 
