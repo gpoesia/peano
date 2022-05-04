@@ -15,6 +15,7 @@ import wandb
 
 from domain import Domain, EquationsDomain
 from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD, POSITIVE, NEGATIVE
+from util import sample_batch
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ class LMPolicyLearning(LearningAgent):
         self.train_temperature = config['train_rollouts_temperature']
         self.mask_non_decision_tokens = config['mask_non_decision_tokens']
         self.only_optimize_when_solved = config['only_optimize_when_solved']
+        self.train_log = []
 
         self.n_evals = 0
 
@@ -156,6 +158,7 @@ class LMPolicyLearning(LearningAgent):
                 self.optimize()
 
             self.training_successes.append(rollout.success)
+            self.train_log.append(rollout)
 
         print(self.training_problems_solved)
 
@@ -177,7 +180,7 @@ class LMPolicyLearning(LearningAgent):
         logger.debug('Taking gradient steps.')
 
         for _ in range(self.config['gradient_steps']):
-            batch = random.choices(self.examples, k=self.batch_size)
+            batch = sample_batch(self.examples, self.batch_size)
             logger.debug('Batch: %s', batch)
 
             t = encode_batch(batch, self.policy.lm.device)

@@ -2,6 +2,7 @@
 
 import torch
 import math
+import random
 
 
 def count_parameters(model):
@@ -19,3 +20,20 @@ def format_parameter_count(model):
         return f'{n / 10**6:.1f}M'
 
     return f'{n / 10**6:.1f}B'
+
+
+def sample_batch(examples: list[str], batch_size: int) -> list[str]:
+    'Samples a batch of examples with a bounded total number of characters'
+    batch = []
+    max_size = 0
+
+    while True:
+        example = random.choice(examples)
+        max_size = max(max_size, len(example))
+
+        if max_size * (1 + len(batch)) > batch_size:
+            break
+
+        batch.append(example)
+
+    return batch
