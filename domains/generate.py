@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from random import randint, choices, choice
+from random import randint, choices, choice, sample
 from typing import List
 from sympy.solvers import solve
 from sympy import Symbol
@@ -74,7 +74,7 @@ def format(
 
     def f_r(e: str) -> str:
         # Base case, single term
-        if len(e) <= 1 or e[0] != "(" or e[-1] != ")":
+        if not e.startswith("("):
             return e
         # Recursive case
         e = e[1:-1]
@@ -87,14 +87,14 @@ def format(
                     stack.append(i)
                 elif c == ")" and stack:
                     stack.pop()
-                if len(stack) == 0:
-                    return i + 1
+                if c == ' ' and len(stack) == 0:
+                    return i
 
         e = e[2:]
         s = split(e)
-        return f"({f_r(e[:s])}{operator}{f_r(e[s+1:])})"
+        return f"({f_r(e[:s])} {operator} {f_r(e[s+1:])})"
 
-    return f_r(term)[1:-1]
+    return f_r(term)
 
 
 def sympy_solve_equation(equation: str):
@@ -108,15 +108,10 @@ def sympy_solve_equation(equation: str):
     return solve(eval(equation))
 
 
-@click.command()
-@click.option("--n", default=100, help="Number of unique equations to generate.")
-@click.option("--degree", default=1, help="The maximum degree of a generated equation.")
-@click.option("--complexity", default=3, help="The complexity of generated equations.")
-@click.option("--output", default="equations.pkl", help="Output filepath (.pkl)")
-def generate(n, degree, complexity, output):
-    """Generates N equations of degree DEGREE in a pickled file OUTPUT"""
-    config = TermConfig(
-        [str(i) for i in range(10)],
+def make_config(n_constants: int, complexity: float) -> TermConfig:
+    constant_pool = [str(i) for i in range(-3, 4)]
+    return TermConfig(
+        sample(constant_pool, n_constants),
         [
             TermFormat(TermFormatType.LOWER_DEGREE, 0.25, 0),
             TermFormat(TermFormatType.LOWER_DEGREE_PRODUCT, 0.25, 1),
@@ -127,16 +122,27 @@ def generate(n, degree, complexity, output):
         ],
         complexity,
     )
+
+@click.command()
+@click.option("--n", default=100, help="Number of unique equations to generate.")
+@click.option("--degree", default=1, help="The maximum degree of a generated equation.")
+@click.option("--max-complexity", default=3, help="The maximum complexity of generated equations.")
+@click.option("--output", default="equations.pkl", help="Output filepath (.pkl)")
+def generate(n, degree, max_complexity, output):
+    """Generates N equations of degree DEGREE in a pickled file OUTPUT"""
     equations = dict()
     with tqdm(total=n) as pbar:
         while len(equations) < n:
+            config = make_config(randint(2, 4), randint(1, max_complexity))
             equation = (
                 f"(= {generate_term(degree, config)} {generate_term(degree, config)})"
             )
-            if equation in equations.keys():
+            if equation in equations:
                 continue
             try:
                 solution = sympy_solve_equation(equation)
+            except KeyboardInterrupt:
+                break
             except:
                 continue
             if len(solution) == 0:
@@ -144,7 +150,7 @@ def generate(n, degree, complexity, output):
             solution = str(solution[0])  # Works for linear equations
             equations[equation] = solution
             pbar.update(1)
-    with open(output, 'ab') as output:
+    with open(output, 'wb') as output:
         pickle.dump(equations, output)
 
 if __name__ == "__main__":
