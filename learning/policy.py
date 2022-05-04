@@ -102,7 +102,7 @@ class Policy(nn.Module):
                 episode.states.append(state)
                 episode.actions.append((sampled_arrow, str(sampled_outcome)))
                 episode.negative_actions.append([a for a in actions if a != sampled_arrow])
-                episode.negative_outcomes.append([o for o in outcomes if o != sampled_outcome])
+                episode.negative_outcomes.append([str(o) for o in outcomes if o != sampled_outcome])
 
             episode.success = domain.reward(problem)
             return episode
@@ -198,6 +198,7 @@ class DecisionTransformer(Policy):
         # Initializing a Reformer model
         self.lm = ReformerModelWithLMHead(configuration)
         self.train_len_multiple = 64*64
+        self.batch_size = 4000
 
     def initial_state(self, observation: str) -> torch.Tensor:
         raise NotImplementedError()
@@ -231,9 +232,21 @@ class DecisionTransformer(Policy):
                          bos=False, eos=False, device=state.device)
 
         input_ids = torch.cat((state.repeat((len(C), 1)), P, C), dim=1)
-        output = self.lm(input_ids, attention_mask=(input_ids != PAD).float())
 
-        prediction = output.logits.softmax(dim=-1)
+        # Run the LM on smaller batches if needed to avoid running it on
+        # more than self.batch_size tokens at a time.
+        outputs = []
+        batch_rows = max(1, self.batch_size // input_ids.shape[1])
+
+        for row in range((input_ids.shape[0] + batch_rows - 1) // batch_rows):
+            i = row * batch_rows
+            j = min(i + batch_rows, input_ids.shape[0])
+            X = input_ids[i:j, :]
+            outputs.append(self.lm(X, attention_mask=(X != PAD).float()).logits)
+
+        output = torch.cat(outputs, dim=0)
+
+        prediction = output.softmax(dim=-1)
 
         skip = state.shape[0] + P.shape[1]
         action_predictions = prediction[range(len(continuations)),
