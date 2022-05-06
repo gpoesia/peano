@@ -6,9 +6,11 @@ import argparse
 
 import torch
 from tqdm import tqdm
+import numpy as np
 
 from environment import *
 import util
+from domain import EquationsDomain
 
 
 def _choose_from_list(prompt, l, to_str=str):
@@ -37,9 +39,31 @@ def run_agent(agent_path, env, device):
     print('Done.')
 
 
+def evaluate_agent(agent_path, d, device):
+    agent = torch.load(agent_path, map_location=device)['agent']
+    print('Loaded', agent_path, ':', util.format_parameter_count(agent.policy), 'parameters.')
+
+    succ = []
+    agent.policy.eval()
+
+    for i in tqdm(range(100)):
+        problem = d.generate(seed=10**7 + i)
+        rollout = agent.policy.rollout(d, problem, depth=8, temperature=0.01)
+        succ.append(rollout.success)
+
+        print(f'#{i} - {problem.description} - {rollout.success}')
+
+#        if rollout.success:
+        print(rollout.actions)
+
+    print('Success rate:', np.mean(succ))
+
+
 def interact_with_environment(env):
     i, p = 0, _input_problem(env)
     prob = 1
+
+    breakpoint()
 
     while not p.reward():
         actions = p.actions()
@@ -83,6 +107,7 @@ def try_random_rollouts(env, n_problems=10**3, n_steps=30):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
+    parser.add_argument('--eval', help='Evaluate the given agent.', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
@@ -94,7 +119,9 @@ if __name__ == '__main__':
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
 
-    if opt.agent is not None:
+    if opt.eval:
+        evaluate_agent(opt.agent, EquationsDomain(), device)
+    elif opt.agent is not None:
         run_agent(opt.agent, env, device)
     elif opt.environment:
         interact_with_environment(env)
