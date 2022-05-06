@@ -14,7 +14,7 @@ from tqdm import tqdm
 import wandb
 
 from domain import Domain, EquationsDomain
-from policy import Policy, DecisionTransformer, RandomPolicy, encode_batch, PAD, POSITIVE, NEGATIVE
+from policy import Policy, DecisionTransformer, RandomPolicy
 from util import sample_batch
 
 
@@ -124,8 +124,10 @@ class LMPolicyLearning(LearningAgent):
         self.training_successes = []
         self.examples = collections.deque(maxlen=config['max_examples'])
         self.training_problems_solved = 0
-        self.optimizer = torch.optim.Adam(policy.lm.parameters())
+        self.optimizer = torch.optim.Adam(policy.parameters())
         self.batch_size = config['batch_size']
+        self.beam_size = config['beam_size']
+        self.epsilon = config['epsilon']
         self.eval_every = config['eval_every']
         self.train_temperature = config['train_rollouts_temperature']
         self.mask_non_decision_tokens = config['mask_non_decision_tokens']
@@ -145,7 +147,10 @@ class LMPolicyLearning(LearningAgent):
             self.policy.eval()
 
             problem = d.generate(seed=i)
-            rollout = self.policy.rollout(d, problem, depth=self.depth,
+            rollout = self.policy.rollout(d, problem,
+                                          beam_size=self.beam_size,
+                                          epsilon=self.epsilon,
+                                          depth=self.depth,
                                           temperature=self.train_temperature)
 
             if rollout.success:
@@ -181,33 +186,19 @@ class LMPolicyLearning(LearningAgent):
 
         for _ in range(self.config['gradient_steps']):
             batch = sample_batch(self.examples, self.batch_size)
+
+            if not batch:
+                continue
+
             logger.debug('Batch: %s', batch)
 
-            t = encode_batch(batch, self.policy.lm.device)
-
-            # NOTE: The Reformer implementation already shifts X and y.
-            # Normally, we'd have to do this manually.
-            X = self.policy.pad_train_batch(t)
-            y = X.clone()
-
-            # Ignore non-decision tokens (or at least PAD tokens) when computing the loss
-            # (-100 is the label mask ID from the huggingface API).
-            if self.mask_non_decision_tokens:
-                y[(y != POSITIVE) & (y != NEGATIVE)] = -100
-            else:
-                y[y == PAD] = -100
-
-
-            output = self.policy.lm(X,
-                                    attention_mask=(X != PAD).float(),
-                                    labels=y)
             self.optimizer.zero_grad()
-
-            output.loss.backward()
+            loss = self.policy.get_loss(batch)
+            loss.backward()
             self.optimizer.step()
 
-            wandb.log({'train_loss': output.loss})
-            logger.debug('{"train_loss": %f}', output.loss)
+            wandb.log({'train_loss': loss})
+            logger.debug('{"train_loss": %f}', loss)
 
     def eval(self, d: Domain):
         succ = []

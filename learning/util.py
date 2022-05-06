@@ -37,3 +37,11 @@ def sample_batch(examples: list[str], batch_size: int) -> list[str]:
         batch.append(example)
 
     return batch
+
+def log(x):
+    'Safe version of log'
+    return math.log(1e-50 + max(0, x))
+
+def softmax(logits: torch.Tensor, temperature = 1.0):
+    s = logits.exp() / temperature
+    return s / s.sum()
