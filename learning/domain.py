@@ -18,13 +18,16 @@ class Domain:
     def generate(self, seed: int) -> Problem:
         raise NotImplementedError()
 
+    def make_problem(self, description: str) -> Problem:
+        raise NotImplementedError()
+
     def state(self, p) -> str:
         raise NotImplementedError()
 
     def actions(self, p) -> list[str]:
         raise NotImplementedError()
 
-    def reward(self, p: Problem) -> bool:
+    def reward(self, p: peano.PyUniverse) -> bool:
         raise NotImplementedError()
 
 
@@ -76,14 +79,16 @@ x : real.
         self.problems = list(problems_dict.keys())
 
     def generate(self, seed: int):
-        problem_str = self.problems[seed % len(self.problems)]
-        u = self.base_universe.clone()
-        u.incorporate(f'equation: {problem_str}.')
-        return Problem(u, problem_str)
+        return self.make_problem(self.problems[seed % len(self.problems)])
 
-    def reward(self, p: Problem) -> bool:
+    def make_problem(self, equation: str):
+        u = self.base_universe.clone()
+        u.incorporate(f'equation: {equation}.')
+        return Problem(u, equation)
+
+    def reward(self, universe: peano.PyUniverse) -> bool:
         'Try to find a rational in the equivalence class of x'
-        s = p.universe.state()
+        s = universe.state()
         x_class = [c for (c, _dtype) in s if 'x' in c][0]
         for obj in x_class:
             try:
@@ -93,9 +98,9 @@ x : real.
                 pass
         return False
 
-    def state(self, p) -> str:
+    def state(self, universe) -> str:
         return '; '.join(f'{{{"=".join(set(vals))}}} : {dtype}'
-                         for vals, dtype in p.universe.state(self.ignore))
+                         for vals, dtype in universe.state(self.ignore))
 
     def actions(self, p):
         return list(self.action_set)
