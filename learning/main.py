@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 import wandb
 
 from agent import LMPolicyLearning
-from policy import DecisionTransformer, DecisionGRU
+from policy import DecisionTransformer, DecisionGRU, make_policy
 from environment import SingleDomainEnvironment
 from domain import EquationsDomain
 
@@ -27,10 +27,10 @@ def main(cfg: DictConfig):
 
     domain = EquationsDomain()
     # policy = DecisionTransformer(cfg['policy'])
-    policy = DecisionGRU(cfg['policy'])
+    policy = make_policy(cfg['policy'])
 
     if cfg['policy'].get('gpu') is not None:
-        policy.to(torch.device(cfg['policy']['gpu']))
+        policy = policy.to(torch.device(cfg['policy']['gpu']))
 
     agent = LMPolicyLearning(policy, cfg['agent'])
     agent.learn_domain(domain)

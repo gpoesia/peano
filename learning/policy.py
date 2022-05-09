@@ -6,6 +6,7 @@ from typing import Any, Optional
 import logging
 import random
 from domain import Domain, EquationsDomain, Problem
+from enum import Enum
 
 import torch
 from torch import nn
@@ -437,7 +438,7 @@ class DecisionGRU(Policy):
 
         self.output = nn.Linear(config.gru.hidden_size, 128)
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
-        self.batch_size = 1000
+        self.batch_size = config.batch_size
         self.mask_non_decision_tokens = False
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
@@ -543,6 +544,134 @@ class DecisionGRU(Policy):
         return F.cross_entropy(output.permute((1, 2, 0)), y.transpose(0, 1))
 
 
+class ExampleType(Enum):
+    STATE_ACTION = 1
+    STATE_OUTCOME = 2
+    STATE_VALUE = 3
+
+
+@dataclass
+class ContrastivePolicyExample:
+    type: ExampleType
+    state: str
+    positive: str = None
+    negatives: list[str] = None
+    value: float = None
+
+    def __len__(self):
+        return (len(self.state) +
+                len(self.positive or '') + 
+                sum(map(len, self.negatives or [])))
+
+
+class ContrastivePolicy(Policy):
+    def __init__(self, config):
+        super().__init__()
+
+        self.lm = nn.GRU(input_size=config.gru.embedding_size,
+                         hidden_size=config.gru.hidden_size,
+                         bidirectional=True,
+                         num_layers=config.gru.layers)
+
+        self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+        self.outcome_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+
+        self.embedding = nn.Embedding(128, config.gru.embedding_size)
+
+    def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
+        if len(arrows) <= 1:
+            return torch.ones(len(arrows), dtype=torch.float, device=self.get_device())
+        # state_embedding : (1, H)
+        state_embedding = self.embed_states([state])
+        # arrow_embedding : (B, H)
+        arrow_embeddings = self.embed_arrows(arrows)
+        # state_t : (H, 1)
+        state_t = self.arrow_readout(state_embedding).transpose(0, 1)
+        # Result: (B,)
+        return arrow_embeddings.matmul(state_t).squeeze(1)
+
+    def score_outcomes(self, outcomes: list[str], action: str, state: str) -> torch.Tensor:
+        if len(outcomes) <= 1:
+            return torch.ones(len(outcomes), dtype=torch.float, device=self.get_device())
+        # state_embedding : (1, H)
+        state_embedding = self.embed_states([state])
+        # outcome_embeddings : (B, H)
+        outcome_embeddings = self.embed_outcomes(outcomes)
+        # state_t : (H, 1)
+        state_t = self.outcome_readout(state_embedding).transpose(0, 1)
+        # Result: (B,)
+        return outcome_embeddings.matmul(state_t).squeeze(1)
+
+    def get_device(self):
+        return self.embedding.weight.device
+
+    def extract_examples(self, episode) -> list[str]:
+        examples = []
+
+        for i, (a, o) in enumerate(episode.actions):
+            if episode.negative_actions[i]:
+                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
+                                                         state=episode.states[i],
+                                                         positive=a,
+                                                         negatives=episode.negative_actions[i]))
+
+            if episode.negative_outcomes[i]:
+                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
+                                                         state=episode.states[i],
+                                                         positive=o,
+                                                         negatives=episode.negative_outcomes[i]))
+
+        return examples
+
+    def get_loss(self, batch) -> torch.Tensor:
+        losses = []
+
+        # HACK: This can be vectorized & batched, but it will be more complicated. This
+        # simple implementation lets us just test out the architecture.
+        for e in batch:
+            if e.type == ExampleType.STATE_ACTION:
+                p = self.score_arrows([e.positive] + e.negatives, e.state).softmax(-1)
+                y = torch.zeros_like(p)
+                y[0] = 1
+                losses.append(F.binary_cross_entropy(p, y))
+            elif e.type == ExampleType.STATE_OUTCOME:
+                p = self.score_outcomes([e.positive] + e.negatives, None, e.state).softmax(-1)
+                y = torch.zeros_like(p)
+                y[0] = 1
+                losses.append(F.binary_cross_entropy(p, y))
+            else:
+                raise ValueError(f'Unknown example type {e.type}')
+
+        return torch.stack(losses, dim=0).mean()
+
+    def embed_raw(self, strs: list[str]) -> torch.Tensor:
+        input = encode_batch(strs, self.get_device(), bos=True, eos=True)
+        input = self.embedding(input.transpose(0, 1))
+        output, _ = self.lm(input)
+        return output[0, :, :]
+
+    def embed_states(self, batch: list[str]) -> torch.Tensor:
+        return self.embed_raw([f'S{s}S' for s in batch])
+
+    def embed_arrows(self, batch: list[str]) -> torch.Tensor:
+        return self.embed_raw([f'A{s}A' for s in batch])
+
+    def embed_outcomes(self, batch: list[str]) -> torch.Tensor:
+        batch = batch or [EMPTY]
+        return self.embed_raw([f'O{s}O' for s in batch])
+
+def make_policy(config):
+    if 'type' not in config:
+        raise ValueError(f'Policy config must have a \'type\'')
+    if config.type == 'DecisionTransformer':
+        return DecisionTransformer(config)
+    elif config.type == 'DecisionGRU':
+        return DecisionGRU(config)
+    elif config.type == 'ContrastivePolicy':
+        return ContrastivePolicy(config)
+    raise ValueError(f'Unknown policy type {config.type}')
+
+
 if __name__ == '__main__':
     import environment
     from omegaconf import DictConfig, OmegaConf
@@ -553,10 +682,12 @@ if __name__ == '__main__':
                                    'n_attention_heads': 1},
                       'gru': {'hidden_size': 256,
                               'embedding_size': 64,
-                              'layers': 2}})
+                              'layers': 2},
+                      'batch_size': 512})
 
     # policy = DecisionTransformer(cfg, arrows)
-    policy = DecisionGRU(cfg)
+    # policy = DecisionGRU(cfg)
+    policy = ContrastivePolicy(cfg)
     policy = policy.to(torch.device(1))
     policy.eval()
 
