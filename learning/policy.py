@@ -381,6 +381,9 @@ class DecisionTransformer(Policy):
         return F.pad(tensor, (0, next_multiple_of_m - n))
 
     def extract_examples(self, episode) -> list[str]:
+        if not episode.success:
+            continue
+
         # Positive.
         def format_example(s, a, c):
             return f'S {s}; {a}{c}'
@@ -499,6 +502,9 @@ class DecisionGRU(Policy):
         return scores
 
     def extract_examples(self, episode) -> list[str]:
+        if not episode.success:
+            continue
+
         # Positive.
         def format_example(s, a, c):
             return f'S {s}; {a}{c}'
@@ -577,6 +583,8 @@ class ContrastivePolicy(Policy):
         self.outcome_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
+        # Truncate states/actions to avoid OOMs.
+        self.max_len = 300
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
         if len(arrows) <= 1:
@@ -606,20 +614,21 @@ class ContrastivePolicy(Policy):
         return self.embedding.weight.device
 
     def extract_examples(self, episode) -> list[str]:
-        examples = []
+        if episode.success:
+            examples = []
 
-        for i, (a, o) in enumerate(episode.actions):
-            if episode.negative_actions[i]:
-                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
-                                                         state=episode.states[i],
-                                                         positive=a,
-                                                         negatives=episode.negative_actions[i]))
+            for i, (a, o) in enumerate(episode.actions):
+                if episode.negative_actions[i]:
+                    examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
+                                                             state=episode.states[i],
+                                                             positive=a,
+                                                             negatives=episode.negative_actions[i]))
 
-            if episode.negative_outcomes[i]:
-                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
-                                                         state=episode.states[i],
-                                                         positive=o,
-                                                         negatives=episode.negative_outcomes[i]))
+                if episode.negative_outcomes[i]:
+                    examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
+                                                             state=episode.states[i],
+                                                             positive=o,
+                                                             negatives=episode.negative_outcomes[i]))
 
         return examples
 
@@ -645,6 +654,7 @@ class ContrastivePolicy(Policy):
         return torch.stack(losses, dim=0).mean()
 
     def embed_raw(self, strs: list[str]) -> torch.Tensor:
+        strs = [s[:self.max_len] for s in strs]
         input = encode_batch(strs, self.get_device(), bos=True, eos=True)
         input = self.embedding(input.transpose(0, 1))
         output, _ = self.lm(input)
