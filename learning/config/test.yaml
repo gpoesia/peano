@@ -2,18 +2,27 @@ agent:
     eval_every: 1000
     eval_problems: 100
     episodes: 100000
-    depth: 8
+    depth: 5
+    search_budget: 100
+    rollout_type: BestFirstSearch
+    beam_size: 10
+    epsilon: 0.1
     max_examples: 10000
-    optimize_every: 10
-    gradient_steps: 128
-    batch_size: 32
+    gradient_steps: 2
+    only_optimize_when_solved: false
+    batch_size: 1000
+    train_rollouts_temperature: 0.5
+    mask_non_decision_tokens: false
 
 policy:
-    type: DecisionTransformer
-    reformer:
-        feed_forward_size: 256
-        hidden_size: 256
-        axial_pos_embds_dim: [64, 192]
+    type: ContrastivePolicy
+    max_negatives_per_episode: 1000
+    batch_size: 512
+    gru:
+        embedding_size: 128
+        hidden_size: 512
+        layers: 2
 
 job:
     wandb_project: peano
+    description: "Test run"

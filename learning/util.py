@@ -45,3 +45,12 @@ def log(x):
 def softmax(logits: torch.Tensor, temperature = 1.0):
     s = logits.exp() / temperature
     return s / s.sum()
+
+
+def pop_max(l: list, key) -> (object, list):
+    if not l:
+        return None, l
+
+    i_max = max(range(len(l)), key=lambda i: key(l[i]))
+    l[-1], l[i_max] = l[i_max], l[-1]
+    return l[-1], l[:-1]

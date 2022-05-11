@@ -15,10 +15,52 @@ from torch.distributions.categorical import Categorical
 from transformers import ReformerModelWithLMHead, ReformerConfig
 
 from environment import Universe
-from util import log, softmax
+from util import log, softmax, pop_max
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SearchNode:
+    universe: Universe = None
+    state: str = None
+    value: float = 0.0
+    parent: 'SearchNode' = None
+    action: str = None
+    outcome: str = None
+    reward: bool = False
+    value_target: float = None
+    depth: int = 0
+
+    def expand(self, domain: Domain) -> list['SearchNode']:
+        c = []
+
+        if self.action:
+            # Expand outcomes.
+            for o in self.universe.apply(self.action):
+                u = make_updated_universe(self.universe, o, f'!subd{self.depth}')
+                c.append(SearchNode(u, domain.state(u),
+                                    depth=self.depth + 1,
+                                    value=None, parent=self,
+                                    action=None, outcome=str(o),
+                                    reward=domain.reward(u)))
+        else:
+            # Expand actions.
+            for a in domain.actions(self.universe):
+                c.append(SearchNode(self.universe, f'S: {self.state} A: {a}', depth=self.depth,
+                                    value=None, parent=self, action=a, reward=self.reward))
+
+        return c
+
+    def __getstate__(self):
+        'Prevent pickle from trying to save the universe.'
+        d = self.__dict__.copy()
+        del d['universe']
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
 
 
 @dataclass
@@ -29,6 +71,16 @@ class Episode:
     states: list[str] = field(default_factory=list)
     negative_actions: list[list[str]] = field(default_factory=list)
     negative_outcomes: list[list[str]] = field(default_factory=list)
+    searched_nodes: list[SearchNode] = None
+
+
+@dataclass
+class TreeSearchEpisode:
+    initial_observation: str
+    success: bool = False
+    visited: list[SearchNode] = field(default_factory=list)
+    goal_state: Optional[SearchNode] = None
+
 
 PAD = 0
 BOS = 1
@@ -99,6 +151,7 @@ class BeamElement:
     logprob: float = 0
     negative_actions: list = field(default_factory=list)
     negative_outcomes: list = field(default_factory=list)
+
 
 class Policy(nn.Module):
     def __init__(self):
@@ -210,6 +263,54 @@ class Policy(nn.Module):
                     beam = sorted(new_beam, key=lambda s: -s.logprob)[:beam_size]
 
             return recover_episode(problem, beam[0], False)
+
+    def best_first_search(self, domain: Domain, problem: Problem,
+                          max_nodes: int) -> Episode:
+        root = SearchNode(problem.universe,
+                          domain.state(problem.universe),
+                          reward=domain.reward(problem.universe))
+        with torch.no_grad():
+            root.value = self.estimate_values([root.state]).item()
+        queue = [root]
+        visited = []
+        goal_state = root if root.reward else None
+
+        while queue and goal_state is None and len(visited) < max_nodes:
+            node, queue = pop_max(queue, lambda node: node.value)
+            visited.append(node)
+
+            children = node.expand(domain)
+
+            if children:
+                with torch.no_grad():
+                    children_values = self.estimate_values([c.state for c in children])
+
+                for c, v in zip(children, children_values):
+                    c.value = v
+
+                    if c.reward:
+                        goal_state = c
+
+            queue.extend(children)
+
+        # For all nodes that are not in the path to the solution, aim to reduce their
+        # value estimates. This will happen to all nodes in case no solution is found.
+        for node in visited:
+            node.value_target = node.value * 0.8
+
+        if goal_state:
+            visited.append(goal_state)
+            node = goal_state
+            value = 1.0
+            while node is not None:
+                node.value_target = value
+                value *= 0.98
+                node = node.parent
+
+        return TreeSearchEpisode(problem.description,
+                                 goal_state is not None,
+                                 visited,
+                                 goal_state)
 
     def extract_examples(self, episode) -> list[str]:
         raise NotImplementedError()
@@ -382,7 +483,7 @@ class DecisionTransformer(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         if not episode.success:
-            continue
+            return
 
         # Positive.
         def format_example(s, a, c):
@@ -503,7 +604,7 @@ class DecisionGRU(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         if not episode.success:
-            continue
+            return
 
         # Positive.
         def format_example(s, a, c):
@@ -581,10 +682,16 @@ class ContrastivePolicy(Policy):
 
         self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
         self.outcome_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+        self.value_readout = nn.Sequential(
+            nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size),
+            nn.ReLU(),
+            nn.Linear(2*config.gru.hidden_size, 1)
+        )
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         # Truncate states/actions to avoid OOMs.
         self.max_len = 300
+        self.discount = 0.99
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
         if len(arrows) <= 1:
@@ -610,25 +717,44 @@ class ContrastivePolicy(Policy):
         # Result: (B,)
         return outcome_embeddings.matmul(state_t).squeeze(1)
 
+    def estimate_values(self, states: list[str]) -> torch.Tensor:
+        logger.debug('Estimating values for %d states, maxlen = %d',
+                     len(states), max(map(len, states)))
+        state_embedding = self.embed_states(states)
+        return self.value_readout(state_embedding).squeeze(1)
+
     def get_device(self):
         return self.embedding.weight.device
 
     def extract_examples(self, episode) -> list[str]:
-        if episode.success:
-            examples = []
+        examples = []
 
+        if isinstance(episode, Episode):
             for i, (a, o) in enumerate(episode.actions):
-                if episode.negative_actions[i]:
-                    examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
-                                                             state=episode.states[i],
-                                                             positive=a,
-                                                             negatives=episode.negative_actions[i]))
+                if episode.success:
+                    if episode.negative_actions[i]:
+                        examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
+                                                                 state=episode.states[i],
+                                                                 positive=a,
+                                                                 negatives=episode.negative_actions[i]))
 
-                if episode.negative_outcomes[i]:
-                    examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
-                                                             state=episode.states[i],
-                                                             positive=o,
-                                                             negatives=episode.negative_outcomes[i]))
+                    if episode.negative_outcomes[i]:
+                        examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
+                                                                 state=episode.states[i],
+                                                                 positive=o,
+                                                                 negatives=episode.negative_outcomes[i]))
+
+            for i, s in enumerate(episode.states):
+                value = (0 if not episode.success
+                         else self.discount ** (len(episode.states) - (i + 1)))
+                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
+                                                         state=episode.states[i],
+                                                         value=value))
+        elif isinstance(episode, TreeSearchEpisode):
+            for node in episode.visited:
+                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
+                                                         state=node.state,
+                                                         value=node.value_target))
 
         return examples
 
@@ -648,8 +774,15 @@ class ContrastivePolicy(Policy):
                 y = torch.zeros_like(p)
                 y[0] = 1
                 losses.append(F.binary_cross_entropy(p, y))
-            else:
+            elif e.type != ExampleType.STATE_VALUE:
                 raise ValueError(f'Unknown example type {e.type}')
+
+        state_values_x = [e.state for e in batch if e.type == ExampleType.STATE_VALUE]
+
+        if len(state_values_x):
+            y = [e.value for e in batch if e.type == ExampleType.STATE_VALUE]
+            y_hat = self.estimate_values(state_values_x)
+            losses.append(((y_hat - torch.tensor(y, device=y_hat.device))**2).mean())
 
         return torch.stack(losses, dim=0).mean()
 

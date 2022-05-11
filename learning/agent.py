@@ -131,6 +131,8 @@ class LMPolicyLearning(LearningAgent):
         self.train_temperature = config['train_rollouts_temperature']
         self.mask_non_decision_tokens = config['mask_non_decision_tokens']
         self.only_optimize_when_solved = config['only_optimize_when_solved']
+        self.rollout_type  = config['rollout_type']
+        self.search_budget = config.get('search_budget', 100)
         self.train_log = []
 
         self.n_evals = 0
@@ -146,11 +148,7 @@ class LMPolicyLearning(LearningAgent):
             self.policy.eval()
 
             problem = d.generate(seed=i)
-            rollout = self.policy.rollout(d, problem,
-                                          beam_size=self.beam_size,
-                                          epsilon=self.epsilon,
-                                          depth=self.depth,
-                                          temperature=self.train_temperature)
+            rollout = self.run_rollout(d, problem, is_train=True)
 
             if rollout.success:
                 logger.info('Problem #%d - %s solved!',
@@ -166,6 +164,19 @@ class LMPolicyLearning(LearningAgent):
             self.train_log.append(rollout)
 
         print(self.training_problems_solved)
+
+    def run_rollout(self, domain, problem, is_train):
+        if self.rollout_type == 'BeamSearch':
+            return self.policy.rollout(domain,
+                                       problem,
+                                       depth=self.depth,
+                                       beam_size=self.beam_size if is_train else 1,
+                                       epsilon=self.epsilon if is_train else 0,
+                                       temperature=self.train_temperature if is_train else 1e-2)
+        elif self.rollout_type == 'BestFirstSearch':
+            return self.policy.best_first_search(domain, problem, self.search_budget)
+        else:
+            raise NotImplementedError(f'Unknown rollout algorithm {self.rollout_type}')
 
     def get_policy(self):
         return self.policy
@@ -208,7 +219,7 @@ class LMPolicyLearning(LearningAgent):
 
         for i in tqdm(range(self.config['eval_problems'])):
             problem = d.generate(seed=10**7 + i)
-            rollout = self.policy.rollout(d, problem, depth=self.depth, temperature=0.01)
+            rollout = self.run_rollout(d, problem, is_train=False)
             succ.append(rollout.success)
             logger.debug('{"eval_idx": %d, "problem": "%s", "success": %d}',
                          self.n_evals, problem.description, rollout.success)
