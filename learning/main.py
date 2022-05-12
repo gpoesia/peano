@@ -2,10 +2,11 @@
 
 import logging
 import sys
+import os
 
 import torch
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
 import wandb
 
 from agent import LMPolicyLearning
@@ -16,6 +17,8 @@ from domain import EquationsDomain
 
 def setup_wandb(cfg: DictConfig):
     if cfg.job.get("wandb_project"):
+        with open_dict(cfg.job):
+            cfg.job.cwd = os.getcwd()
         wandb.init(project=cfg.job.wandb_project, config=cfg)
     else:
         # Disable wandb (i.e., make log() a no-op).

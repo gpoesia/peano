@@ -152,6 +152,9 @@ class BeamElement:
     negative_actions: list = field(default_factory=list)
     negative_outcomes: list = field(default_factory=list)
 
+    def __str__(self) -> str:
+        return f'BeamElement({self.state}, logprob={self.logprob})'
+
 
 class Policy(nn.Module):
     def __init__(self):
@@ -191,10 +194,16 @@ class Policy(nn.Module):
             # 3- Score arrow outcomes for each state/arrow in the intermediate beam
             # 4- Filter top outcomes and apply outcome to states to obtain next beam
             for it in range(depth):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f'Beam #{it}:')
+                    for e in beam:
+                        logger.debug('  %s', e)
+
                 # 0- Check if a solution was found
                 solution = next((s for s in beam if domain.reward(s.universe)), None)
 
                 if solution is not None:
+                    logger.debug('Solution state: %s', solution)
                     return recover_episode(problem, solution, True)
 
                 # epsilon-greedy: pick random actions in this iteration with probability eps.
@@ -205,13 +214,20 @@ class Policy(nn.Module):
                 arrow_probabilities = [(self.score_arrows(a, s.state) / temperature).softmax(-1)
                                        for a, s in zip(actions, beam)]
 
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('Arrow probabilities:')
+                    for i, s in enumerate(beam):
+                        logger.debug('  %s => %s', s.state,
+                                     sorted(list(zip(actions[i], arrow_probabilities[i])),
+                                            key=lambda aap: aap[1], reverse=True))
+
                 beam = [BeamElement(universe=s.universe,
                                     state=s.state,
                                     action=a,
                                     outcome=None,
                                     logprob=s.logprob + log(arrow_probabilities[i][j].item()),
                                     parent=s,
-                                    negative_actions=actions[:j] + actions[j+1:],
+                                    negative_actions=actions[i][:j] + actions[i][j+1:],
                                     negative_outcomes=None)
                         for i, s in enumerate(beam)
                         for j, a in enumerate(actions[i])]
@@ -228,6 +244,13 @@ class Policy(nn.Module):
                                                               s.action,
                                                               s.state) / temperature).softmax(-1)
                                          for outs, s in zip(outcomes, beam)]
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('Outcome probabilities:')
+                    for i, s in enumerate(beam):
+                        logger.debug('  %s / %s => %s', s.state, s.action,
+                                     sorted(list(zip(outcomes[i], outcome_probabilities[i])),
+                                            key=lambda oop: oop[1], reverse=True))
 
                 new_beam = []
                 for i, s in enumerate(beam):
@@ -604,7 +627,7 @@ class DecisionGRU(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         if not episode.success:
-            return
+            return []
 
         # Positive.
         def format_example(s, a, c):
@@ -689,6 +712,7 @@ class ContrastivePolicy(Policy):
         )
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
+        self.discard_unsolved = config.discard_unsolved
         # Truncate states/actions to avoid OOMs.
         self.max_len = 300
         self.discount = 0.99
@@ -728,6 +752,9 @@ class ContrastivePolicy(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         examples = []
+
+        if not episode.success and self.discard_unsolved:
+            return examples
 
         if isinstance(episode, Episode):
             for i, (a, o) in enumerate(episode.actions):

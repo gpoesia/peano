@@ -2,22 +2,23 @@ agent:
     eval_every: 1000
     eval_problems: 100
     episodes: 100000
-    depth: 5
+    depth: 6
     search_budget: 100
-    rollout_type: BestFirstSearch
+    rollout_type: BeamSearch
     beam_size: 10
     epsilon: 0.1
     max_examples: 10000
-    gradient_steps: 2
+    gradient_steps: 1
     only_optimize_when_solved: false
-    batch_size: 1000
-    train_rollouts_temperature: 0.5
+    batch_size: 2048
+    train_rollouts_temperature: 1
     mask_non_decision_tokens: false
 
 policy:
-    type: ContrastivePolicy
+    type: DecisionGRU
     max_negatives_per_episode: 1000
-    batch_size: 512
+    batch_size: 1024
+    discard_unsolved: true
     gru:
         embedding_size: 128
         hidden_size: 512
