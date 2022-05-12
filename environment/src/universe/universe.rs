@@ -22,7 +22,7 @@ const REAL_TYPE_CONST: &str = &"real";
 #[derive(Clone)]
 pub struct Universe {
     egraph: EGraph<SymbolLang, ()>,
-    context: Context,
+    pub context: Context,
     eclass_name: HashMap<Id, String>,
     next_id: usize,
 }
