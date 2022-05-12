@@ -11,6 +11,7 @@ import numpy as np
 from environment import *
 import util
 from domain import EquationsDomain
+import logging
 
 
 def _choose_from_list(prompt, l, to_str=str):
@@ -21,22 +22,29 @@ def _choose_from_list(prompt, l, to_str=str):
     return l[int(input('> '))]
 
 
-def _input_problem(env):
-    return _choose_from_list('Pick a problem:',
-                             [env.sample_problem(i) for i in range(40)],
-                             lambda p: p.starting_state())
+def _input_problem(domain):
+    opt = input('a) Type problem, b) select one from list, or Enter for debug mode: ')
+
+    if opt == 'a':
+        p = input('Problem: ')
+        return domain.make_problem(p)
+    elif opt == 'b':
+        return _choose_from_list('Pick a problem:',
+                                 [domain.generate(i) for i in range(40)],
+                                 lambda p: p.description)
 
 
-def run_agent(agent_path, env, device):
+def run_beam_search(agent_path, domain, device):
     agent = torch.load(agent_path, map_location=device)['agent']
     print('Loaded', agent_path, ':', util.format_parameter_count(agent.policy), 'parameters.')
 
-    p = _input_problem(env)
+    p = _input_problem(domain)
+
+    if p is not None:
+        episode = agent.policy.rollout(domain, p, 8)
+        
     breakpoint()
-
-    agent.policy.rollout(p, 5)
-
-    print('Done.')
+    'Debug mode'
 
 
 def evaluate_agent(agent_path, d, device):
@@ -107,22 +115,30 @@ def try_random_rollouts(env, n_problems=10**3, n_steps=30):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
-    parser.add_argument('--eval', help='Evaluate the given agent.', action='store_true')
+    parser.add_argument('--eval', help='Evaluate the given agent on the test set.', action='store_true')
+    parser.add_argument('--beam-search', help='Run beam search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
     parser.add_argument('--gpu', help='GPU device to use.', type=int)
+    parser.add_argument('--verbose', help='Use debug-level .', action='store_true')
 
     opt = parser.parse_args()
 
     env = SingleDomainEnvironment('equations')
+    domain = EquationsDomain()
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
 
+    logging.basicConfig()
+
+    if opt.verbose:
+        logging.root.setLevel(logging.DEBUG)
+
     if opt.eval:
-        evaluate_agent(opt.agent, EquationsDomain(), device)
-    elif opt.agent is not None:
-        run_agent(opt.agent, env, device)
+        evaluate_agent(opt.agent, domain, device)
+    elif opt.beam_search:
+        run_beam_search(opt.agent, domain, device)
     elif opt.environment:
         interact_with_environment(env)
     elif opt.random_rollouts:
