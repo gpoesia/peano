@@ -39,6 +39,17 @@ impl PyDefinition {
         )
     }
 
+    pub fn clean_str(&self, u: &Universe) -> String {
+        format!(
+            "{} : {}",
+            match &self.def.value {
+                None => String::from("_"),
+                Some(v) => v.in_context(u).to_string()
+            },
+            self.def.dtype.in_context(u).to_string()
+        )
+    }
+
     pub fn __repr__(&self) -> String {
         self.__str__()
     }
