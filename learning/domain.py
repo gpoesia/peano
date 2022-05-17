@@ -83,7 +83,7 @@ x : real.
             self.problems = None
 
     def generate(self, seed: int):
-        if self.cached_problems:
+        if self.problems:
             return self.make_problem(self.problems[seed % len(self.problems)])
         raise ValueError('No cached problems and no generator implemented.')
 
