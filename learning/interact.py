@@ -47,7 +47,20 @@ def run_beam_search(agent_path, domain, device):
     'Debug mode'
 
 
-def evaluate_agent(agent_path, d, device):
+def run_best_first_search(agent_path, domain, device):
+    agent = torch.load(agent_path, map_location=device)['agent']
+    print('Loaded', agent_path, ':', util.format_parameter_count(agent.policy), 'parameters.')
+
+    p = _input_problem(domain)
+
+    if p is not None:
+        episode = agent.policy.best_first_search(domain, p, 100)
+
+    breakpoint()
+    'Debug mode'
+
+
+def evaluate_agent(agent_path, d, device, rollout_type):
     agent = torch.load(agent_path, map_location=device)['agent']
     print('Loaded', agent_path, ':', util.format_parameter_count(agent.policy), 'parameters.')
 
@@ -56,36 +69,41 @@ def evaluate_agent(agent_path, d, device):
 
     for i in tqdm(range(100)):
         problem = d.generate(seed=10**7 + i)
-        rollout = agent.policy.rollout(d, problem, depth=8, temperature=0.01)
+        if rollout_type == 'greedy':
+            rollout = agent.policy.rollout(d, problem, depth=8, temperature=0.01, beam_size=1)
+            print(rollout.actions)
+        elif rollout_type == 'beam-search':
+            rollout = agent.policy.rollout(d, problem, depth=8, temperature=0.01, beam_size=10)
+            print(rollout.actions)
+        elif rollout_type == 'best-first-search':
+            rollout = agent.policy.best_first_search(d, problem, 100)
         succ.append(rollout.success)
 
         print(f'#{i} - {problem.description} - {rollout.success}')
 
 #        if rollout.success:
-        print(rollout.actions)
 
     print('Success rate:', np.mean(succ))
 
 
-def interact_with_environment(env):
-    i, p = 0, _input_problem(env)
+def interact_with_environment(domain):
+    i, p = 0, _input_problem(domain)
     prob = 1
 
-    breakpoint()
+    while not domain.reward(p.universe):
+        actions = domain.actions(p.universe)
 
-    while not p.reward():
-        actions = p.actions()
-        print('State:', env.format_state(p, set(actions + ['real'])))
+        print('State:', domain.state(p.universe))
         a = _choose_from_list('Arrow to apply:', actions)
 
         prob *= 1 / len(actions)
 
-        outcomes = p.apply(a)
+        outcomes = p.universe.apply(a)
         o = _choose_from_list('Result to use:', outcomes)
 
         prob *= 1 / len(outcomes)
 
-        p.define(f'!sub{i}', o)
+        p.universe.define(f'!subd{i}', o)
         i += 1
 
     print('Solved in', i, 'steps!')
@@ -117,6 +135,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
     parser.add_argument('--eval', help='Evaluate the given agent on the test set.', action='store_true')
     parser.add_argument('--beam-search', help='Run beam search with the given agent', action='store_true')
+    parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
@@ -136,10 +155,15 @@ if __name__ == '__main__':
         logging.root.setLevel(logging.DEBUG)
 
     if opt.eval:
-        evaluate_agent(opt.agent, domain, device)
+        evaluate_agent(opt.agent, domain, device,
+                       'beam-search' if opt.beam_search
+                       else 'best-first-search' if opt.best_first_search
+                       else 'greedy')
     elif opt.beam_search:
         run_beam_search(opt.agent, domain, device)
+    elif opt.best_first_search:
+        run_best_first_search(opt.agent, domain, device)
     elif opt.environment:
-        interact_with_environment(env)
+        interact_with_environment(domain)
     elif opt.random_rollouts:
         try_random_rollouts(env)
