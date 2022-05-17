@@ -2,8 +2,12 @@ from dataclasses import dataclass
 from enum import Enum
 from random import randint, choices, choice, sample
 from typing import List
+
+import sympy
 from sympy.solvers import solve
 from sympy import Symbol
+from sympy.core.numbers import Rational
+
 import click
 import pickle
 from tqdm import tqdm
@@ -97,6 +101,31 @@ def format(
     return f_r(term)
 
 
+def sympy_to_sexp(expr):
+    '''Formats a Sympy expression as a s-expr (as in Peano).'''
+    # Base cases: number or variable.
+    if isinstance(expr, Rational) or isinstance(expr, Symbol):
+        return str(expr)
+    # Division. Sympy represents division as multiplying by the inverse
+    elif isinstance(expr, sympy.core.Mul) and \
+         isinstance(expr.args[1], sympy.core.Pow) and \
+         expr.args[1].args[1] == -1:
+        return f'(/ {sympy_to_sexp(expr.args[0])} {sympy_to_sexp(expr.args[1].args[0])})'
+    # Subtraction. Sympy represents subtraction by n as addition to -1 * n.
+    elif isinstance(expr, sympy.core.Add) and \
+         isinstance(expr.args[1], sympy.core.Mul) and \
+         expr.args[1].args[0] == -1:
+        return f'(- {sympy_to_sexp(expr.args[0])} {sympy_to_sexp(expr.args[1].args[1])})'
+    # Regular multiplication.
+    elif isinstance(expr, sympy.core.Mul):
+        return f'(* {sympy_to_sexp(expr.args[0])} {sympy_to_sexp(expr.args[1])})'
+    # Regular addition.
+    elif isinstance(expr, sympy.core.Add):
+        return f'(+ {sympy_to_sexp(expr.args[0])} {sympy_to_sexp(expr.args[1])})'
+
+    raise NotImplementedError("Unsupported sympy expression " + str(expr))
+
+
 def sympy_solve_equation(equation: str):
     """Solves using sympy, takes in a Peano formatted equation"""
     x = Symbol("x")  # Need this because of "eval"
@@ -106,6 +135,12 @@ def sympy_solve_equation(equation: str):
     rhs = equation_parts[1]
     equation = f"{lhs} - ({rhs})"
     return solve(eval(equation))
+
+
+def sympy_simplify(expression: str):
+    """Simplifies using sympy, takes in a Peano formatted equation"""
+    x = Symbol("x")  # Need this because of "eval"
+    return sympy.simplify(sympy.sympify(format(expression)))
 
 
 def make_config(n_constants: int, complexity: float) -> TermConfig:
@@ -123,13 +158,17 @@ def make_config(n_constants: int, complexity: float) -> TermConfig:
         complexity,
     )
 
-@click.command()
+@click.group()
+def cli():
+    pass
+
+@cli.command()
 @click.option("--n", default=100, help="Number of unique equations to generate.")
 @click.option("--degree", default=1, help="The maximum degree of a generated equation.")
 @click.option("--max-complexity", default=3, help="The maximum complexity of generated equations.")
 @click.option("--output", default="equations.pkl", help="Output filepath (.pkl)")
-def generate(n, degree, max_complexity, output):
-    """Generates N equations of degree DEGREE in a pickled file OUTPUT"""
+def equations(n, degree, max_complexity, output):
+    """Generates equations and their solutions"""
     equations = dict()
     with tqdm(total=n) as pbar:
         while len(equations) < n:
@@ -153,5 +192,38 @@ def generate(n, degree, max_complexity, output):
     with open(output, 'wb') as output:
         pickle.dump(equations, output)
 
+@cli.command()
+@click.option("--n", default=100, help="Number of unique expressions to generate.")
+@click.option("--degree", default=1, help="The maximum degree of a generated expression.")
+@click.option("--max-complexity", default=4, help="The maximum complexity of generated expression.")
+@click.option("--output", default="simplify.pkl", help="Output filepath (.pkl)")
+def simplify(n, degree, max_complexity, output):
+    """Generates expressions and one possible simplification."""
+    print('Generating simplifications')
+    expressions = {}
+
+    with tqdm(total=n) as pbar:
+        while len(expressions) < n:
+            config = make_config(randint(2, 4), randint(1, max_complexity))
+            expression = generate_term(degree, config)
+            if expression in expressions:
+                continue
+            try:
+                solution = sympy_to_sexp(sympy_simplify(expression))
+            except KeyboardInterrupt:
+                break
+            except NotImplementedError:
+                continue
+
+            if solution == expression:
+                continue
+
+            print(expression, '-->', solution)
+
+            expressions[expression] = solution
+            pbar.update(1)
+    with open(output, 'wb') as output:
+        pickle.dump(expressions, output)
+
 if __name__ == "__main__":
-    generate()
+    cli()

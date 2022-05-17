@@ -3,6 +3,7 @@
 import os
 import pickle
 from fractions import Fraction
+import random
 
 import peano
 
@@ -32,7 +33,7 @@ class Domain:
 
 
 class EquationsDomain(Domain):
-    def __init__(self):
+    def __init__(self, cached_problems='linear-equations.pkl'):
         blank_domain = peano.get_domain('blank')
         self.base_universe = blank_domain.generate(0)
         self.base_universe.incorporate('''
@@ -64,6 +65,7 @@ real : type.
 *1_id : [(a : real) -> (= (* a 1) a)].
 /1_id : [(a : real) -> (= (/ a 1) a)].
 div_self_id : [(a : real) -> (!= a 0) -> (= (/ a a) 1)].
+-self_null: [(a : real) -> (= (- a a) 0)].
 
 *0_null : [(a : real) -> (= (* a 0) 0)].
 0_div_null : [(a : real) -> (!= a 0) -> (= (/ 0 a) 0)].
@@ -73,13 +75,17 @@ x : real.
         self.ignore = self.action_set.union({'real'})
         self.action_set -= {'=', '!='}
 
-        with open(os.path.join(os.path.dirname(__file__), 'linear-equations.pkl'), 'rb') as f:
-            problems_dict = pickle.load(f)
-
-        self.problems = list(problems_dict.keys())
+        if cached_problems:
+            with open(os.path.join(os.path.dirname(__file__), cached_problems), 'rb') as f:
+                problems = pickle.load(f)
+            self.problems = list(problems.keys()) if isinstance(problems, dict) else problems
+        else:
+            self.problems = None
 
     def generate(self, seed: int):
-        return self.make_problem(self.problems[seed % len(self.problems)])
+        if self.cached_problems:
+            return self.make_problem(self.problems[seed % len(self.problems)])
+        raise ValueError('No cached problems and no generator implemented.')
 
     def make_problem(self, equation: str):
         u = self.base_universe.clone()
@@ -104,3 +110,39 @@ x : real.
 
     def actions(self, p):
         return list(self.action_set)
+
+class SimplificationDomain(EquationsDomain):
+    def __init__(self, level):
+        super().__init__(f'simpl-{level}.pkl')
+
+
+class Simpl0Domain(SimplificationDomain):
+    def __init__(self):
+        super().__init__(0)
+
+class Simpl1Domain(SimplificationDomain):
+    def __init__(self):
+        super().__init__(1)
+
+class Simpl2Domain(SimplificationDomain):
+    def __init__(self):
+        super().__init__(2)
+
+class Simpl3Domain(SimplificationDomain):
+    def __init__(self):
+        super().__init__(3)
+
+class Simpl4Domain(SimplificationDomain):
+    def __init__(self):
+        super().__init__(4)
+
+
+def make_domain(name):
+    return ({
+        'equations': EquationsDomain,
+        'simpl0': Simpl0Domain,
+        'simpl1': Simpl1Domain,
+        'simpl2': Simpl2Domain,
+        'simpl3': Simpl3Domain,
+        'simpl4': Simpl4Domain,
+    })[name]()

@@ -12,7 +12,7 @@ import wandb
 from agent import LMPolicyLearning
 from policy import DecisionTransformer, DecisionGRU, make_policy
 from environment import SingleDomainEnvironment
-from domain import EquationsDomain
+from domain import make_domain
 
 
 def setup_wandb(cfg: DictConfig):
@@ -28,7 +28,7 @@ def setup_wandb(cfg: DictConfig):
 def main(cfg: DictConfig):
     setup_wandb(cfg)
 
-    domain = EquationsDomain()
+    domain = make_domain(cfg.domain)
     # policy = DecisionTransformer(cfg['policy'])
     policy = make_policy(cfg['policy'])
 

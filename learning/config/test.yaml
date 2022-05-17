@@ -1,3 +1,5 @@
+domain: "equations"
+
 agent:
     eval_every: 1000
     eval_problems: 100
