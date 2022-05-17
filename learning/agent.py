@@ -129,11 +129,12 @@ class LMPolicyLearning(LearningAgent):
         self.epsilon = config['epsilon']
         self.eval_every = config['eval_every']
         self.train_temperature = config['train_rollouts_temperature']
-        self.mask_non_decision_tokens = config['mask_non_decision_tokens']
         self.only_optimize_when_solved = config['only_optimize_when_solved']
         self.rollout_type  = config['rollout_type']
         self.search_budget = config.get('search_budget', 100)
         self.train_log = []
+
+        self.dump_examples = config.get('dump_examples')
 
         self.n_evals = 0
 
@@ -204,6 +205,13 @@ class LMPolicyLearning(LearningAgent):
             logger.debug('Batch: %s', batch)
 
             self.optimizer.zero_grad()
+
+            # Dump examples for debugging if that's enabled.
+            if self.dump_examples:
+                with open(self.dump_examples, 'a') as examples_log:
+                    for e in batch:
+                        examples_log.write(f'{e}\n')
+
             loss = self.policy.get_loss(batch)
             loss.backward()
             self.optimizer.step()
