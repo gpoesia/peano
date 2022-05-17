@@ -43,7 +43,7 @@ class SearchNode:
                 c.append(SearchNode(u, domain.state(u),
                                     depth=self.depth + 1,
                                     value=None, parent=self,
-                                    action=None, outcome=str(o),
+                                    action=None, outcome=o.clean_str(self.universe),
                                     reward=domain.reward(u)))
         else:
             # Expand actions.
@@ -240,7 +240,7 @@ class Policy(nn.Module):
 
                 # 3- Score arrow outcomes.
                 outcomes = [s.universe.apply(s.action) for s in beam]
-                outcome_probabilities = [(self.score_outcomes([str(o) for o in outs],
+                outcome_probabilities = [(self.score_outcomes([o.clean_str(s.universe) for o in outs],
                                                               s.action,
                                                               s.state) / temperature).softmax(-1)
                                          for outs, s in zip(outcomes, beam)]
@@ -271,11 +271,11 @@ class Policy(nn.Module):
                             universe=u,
                             state=domain.state(u),
                             action=s.action,
-                            outcome=str(o),
+                            outcome=o.clean_str(u) if not isinstance(o, str) else o,
                             logprob=s.logprob + log(outcome_probabilities[i][j].item()),
                             parent=s.parent,
                             negative_actions=s.negative_actions,
-                            negative_outcomes=[str(o_k)
+                            negative_outcomes=[o_k.clean_str(u)
                                                for k, o_k in enumerate(outcomes[i])
                                                if k != j]))
 
@@ -302,6 +302,8 @@ class Policy(nn.Module):
             node, queue = pop_max(queue, lambda node: node.value)
             visited.append(node)
 
+            logger.debug('Visiting %s (estimated value: %f)', node.state, node.value)
+
             children = node.expand(domain)
 
             if children:
@@ -310,16 +312,19 @@ class Policy(nn.Module):
 
                 for c, v in zip(children, children_values):
                     c.value = v
+                    logger.debug('\tEstimated value for children %s / %s: %f',
+                                 c.state, c.action, c.value)
 
                     if c.reward:
                         goal_state = c
 
-            queue.extend(children)
+                queue.extend(children)
 
         # For all nodes that are not in the path to the solution, aim to reduce their
-        # value estimates. This will happen to all nodes in case no solution is found.
+        # value estimates. This will happen to all nodes in case no solution is found
+        # and the agent doesn't ignore unsolved problems.
         for node in visited:
-            node.value_target = node.value * 0.8
+            node.value_target = 0
 
         if goal_state:
             visited.append(goal_state)
@@ -341,6 +346,18 @@ class Policy(nn.Module):
     def get_loss(self, batch) -> torch.Tensor:
         raise NotImplementedError()
 
+    def embed_raw(self, strs: list[str]) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def embed_states(self, batch: list[str]) -> torch.Tensor:
+        return self.embed_raw([f'S{s}S' for s in batch])
+
+    def embed_arrows(self, batch: list[str]) -> torch.Tensor:
+        return self.embed_raw([f'A{s}A' for s in batch])
+
+    def embed_outcomes(self, batch: list[str]) -> torch.Tensor:
+        batch = batch or [EMPTY]
+        return self.embed_raw([f'O{s}O' for s in batch])
 
 class RNNObservationEmbedding(nn.Module):
     def __init__(self, config):
@@ -434,6 +451,7 @@ class DecisionTransformer(Policy):
         self.lm = ReformerModelWithLMHead(configuration)
         self.train_len_multiple = 64*64
         self.batch_size = 4000
+        self.mask_non_decision_tokens = config.mask_non_decision_tokens
 
     def initial_state(self, observation: str) -> torch.Tensor:
         raise NotImplementedError()
@@ -457,6 +475,8 @@ class DecisionTransformer(Policy):
                              state: str,
                              prefix: str,
                              continuations: list[str]) -> torch.Tensor:
+        if not continuations:
+            return torch.tensor([])
 
         state = encode_batch([f'S {state}'],
                              self.lm.device,
@@ -506,7 +526,7 @@ class DecisionTransformer(Policy):
 
     def extract_examples(self, episode) -> list[str]:
         if not episode.success:
-            return
+            return []
 
         # Positive.
         def format_example(s, a, c):
@@ -820,15 +840,6 @@ class ContrastivePolicy(Policy):
         output, _ = self.lm(input)
         return output[0, :, :]
 
-    def embed_states(self, batch: list[str]) -> torch.Tensor:
-        return self.embed_raw([f'S{s}S' for s in batch])
-
-    def embed_arrows(self, batch: list[str]) -> torch.Tensor:
-        return self.embed_raw([f'A{s}A' for s in batch])
-
-    def embed_outcomes(self, batch: list[str]) -> torch.Tensor:
-        batch = batch or [EMPTY]
-        return self.embed_raw([f'O{s}O' for s in batch])
 
 def make_policy(config):
     if 'type' not in config:
