@@ -599,7 +599,7 @@ impl Universe {
 
     // Returns whether the two given objects are equivalent considering all the equalities
     // implicitly encoded in the universe.
-    fn are_equivalent(&self, t1: &Term, t2: &Term) -> bool {
+    pub fn are_equivalent(&self, t1: &Term, t2: &Term) -> bool {
         let abstract_t1 = t1.to_sexp().abstract_with_egraph(&self.egraph);
         let abstract_t2 = t2.to_sexp().abstract_with_egraph(&self.egraph);
 
@@ -629,10 +629,12 @@ impl Universe {
 
         let mut objects_by_eclass: HashMap<Id, Vec<String>> = HashMap::new();
         let mut eclass_dtype: HashMap<Id, String> = HashMap::new();
+        let mut eclass_order: Vec<Id> = Vec::new();
 
         for name in self.context.insertion_order.iter() {
             let eclass = self.egraph.lookup(SymbolLang::leaf(name.clone())).unwrap();
             let strs = objects_by_eclass.entry(self.egraph.find(eclass)).or_default();
+            let is_new = strs.len() == 0;
 
             let def = self.context.lookup(name).unwrap();
 
@@ -649,9 +651,15 @@ impl Universe {
             if !name.starts_with("!sub") {
                 strs.push(name.clone());
             }
+
+            if is_new && strs.len() > 0 {
+                eclass_order.push(eclass);
+            }
         }
 
-        for (eclass, mut objects) in objects_by_eclass.into_iter() {
+        for eclass in eclass_order.into_iter() {
+            let mut objects = objects_by_eclass.remove(&eclass).unwrap();
+
             // Find real constants that might belong to this e-class.
             for node in &self.egraph[eclass].nodes {
                 if node.is_leaf() && is_real_const(node.op.as_str()) {

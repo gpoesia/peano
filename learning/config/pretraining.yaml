@@ -1,0 +1,12 @@
+domain: simpl3
+number_of_episodes: 10
+save_every: 5
+max_steps: 15
+max_state_length: 1000
+output_path: "pretraining-episodes-simpl3.{}.pkl"
+
+shard: 0
+
+hydra:
+    job:
+        chdir: false

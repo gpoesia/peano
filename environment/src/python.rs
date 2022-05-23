@@ -89,6 +89,14 @@ impl PyUniverse {
         }
     }
 
+    pub fn are_equivalent(&mut self, lhs: &str, rhs: &str) -> PyResult<bool> {
+        match (lhs.parse(), rhs.parse()) {
+            (Ok(t1), Ok(t2)) => Ok(self.universe.are_equivalent(&t1, &t2)),
+            (Err(e), _) => Err(PyValueError::new_err(format!("Failed to parse {}: {}", lhs, e))),
+            (_, Err(e)) => Err(PyValueError::new_err(format!("Failed to parse {}: {}", rhs, e))),
+        }
+    }
+
     pub fn clone(&self) -> PyUniverse {
         PyUniverse {
             universe: self.universe.clone(),

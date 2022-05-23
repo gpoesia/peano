@@ -66,6 +66,7 @@ class SearchNode:
 @dataclass
 class Episode:
     initial_observation: str
+    goal: str = None
     success: bool = False
     actions: list[tuple[str, str]] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
