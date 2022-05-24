@@ -4,13 +4,17 @@ import random
 import time
 import pickle
 
+import torch
+import wandb
 from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 from domain import make_domain, Domain
 from environment import Universe, Definition
-from policy import Episode, make_updated_universe
+from policy import Episode, make_updated_universe, make_policy
+from util import shuffle_state, randomly_mask_goal_terms, sample_batch, format_parameter_count
+from main import setup_wandb
 
 
 def pick_equality(state: list[(list[str], str)]) -> (str, str):
@@ -143,8 +147,78 @@ def generate_pretraining_episode(d: Domain, max_steps: int, max_state_length: in
     return ce
 
 
-@hydra.main(config_path="config", config_name="pretraining")
-def main(cfg: DictConfig):
+def train(cfg: DictConfig):
+    episodes = []
+    datasets = []
+
+    # Load training episodes.
+    if 'shards' in cfg:
+        for i in range(cfg.shards):
+            datasets.append(cfg.dataset.format(i))
+    else:
+        datasets.append(cfg.dataset)
+
+    for path in datasets:
+        with open(path, 'rb') as f:
+            episodes.extend(pickle.load(f))
+
+    policy = make_policy(cfg.policy)
+
+    print('Model has', format_parameter_count(policy), 'trainable parameters.')
+
+    if cfg.policy.get('gpu') is not None:
+        policy = policy.to(torch.device(cfg.policy.gpu))
+
+    examples = []
+
+    print('Extracting examples from episodes...')
+
+    for e in tqdm(episodes):
+        e.success = True
+
+        if len(e.negative_actions) != len(e.actions):
+            continue
+
+        for _ in range(cfg.n_augmentations):
+            examples.extend(policy.extract_examples(
+                e,
+                transform_state=shuffle_state,
+                transform_goal=lambda g: randomly_mask_goal_terms(
+                    g, cfg.goal_mask_probability)))
+
+    print(len(examples), 'examples.')
+
+    setup_wandb(cfg)
+
+    optimizer = torch.optim.Adam(policy.parameters())
+    batch_size = cfg.batch_size
+    policy.train()
+    n_checkpoints = 0
+
+    def checkpoint():
+        nonlocal n_checkpoints
+        torch.save(policy, f'lm.{n_checkpoints}.pt')
+        n_checkpoints += 1
+
+    # FIXME: We should use a lightning Trainer instead.
+    for i in tqdm(range(cfg.gradient_steps)):
+        batch = sample_batch(examples, batch_size)
+        if not batch:
+            continue
+
+        optimizer.zero_grad()
+        loss = policy.get_loss(batch)
+        loss.backward()
+        optimizer.step()
+        wandb.log({'train_loss': loss})
+
+        if i % cfg.checkpoint_every == 0:
+            checkpoint()
+
+    checkpoint()
+
+
+def generate(cfg: DictConfig):
     domain = make_domain(cfg.domain)
     n = cfg.number_of_episodes
 
@@ -174,6 +248,17 @@ def main(cfg: DictConfig):
     with open(output_path, 'wb') as f:
         pickle.dump(episodes, f)
     print('Wrote', output_path)
+
+
+@hydra.main(config_path="config", config_name="pretraining")
+def main(cfg: DictConfig):
+    if cfg.task == 'train':
+        train(cfg)
+    elif cfg.task == 'generate':
+        generate(cfg)
+    else:
+        raise ValueError(f'Unknown pretraining command {cfg.task}')
+
 
 if __name__ == '__main__':
     main()

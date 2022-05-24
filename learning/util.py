@@ -14,9 +14,9 @@ def format_parameter_count(model):
 
     if n < 1000:
         return str(n)
-    elif n < 10**6:
+    if n < 10**6:
         return f'{n // 10**3}K'
-    elif n < 10**9:
+    if n < 10**9:
         return f'{n / 10**6:.1f}M'
 
     return f'{n / 10**6:.1f}B'
@@ -54,3 +54,65 @@ def pop_max(l: list, key) -> (object, list):
     i_max = max(range(len(l)), key=lambda i: key(l[i]))
     l[-1], l[i_max] = l[i_max], l[-1]
     return l[-1], l[:-1]
+
+
+def shuffle_state(s: str) -> str:
+    'Perform data augmentation for Peano states by shuffling e-classes and e-nodes'
+
+    eclasses = s.split('; ')
+    random.shuffle(eclasses)
+
+    for i in range(len(eclasses)):
+        enodes, dtype = eclasses[i].split(' : ')
+        # Strip '{' and '}'
+        enodes = enodes.lstrip('{').rstrip('}').split('=')
+        random.shuffle(enodes)
+
+        eclasses[i] = f'{{{"=".join(enodes)}}} : {dtype}'
+
+    return '; '.join(eclasses)
+
+
+def parse_sexp(s: str, ptr: int = 0) -> (object, int):
+    while ptr < len(s) and s[ptr] == ' ':
+        ptr += 1
+
+    if s[ptr] == '(':
+        # Read list
+        ptr += 1 # Consume (
+        l = []
+        while s[ptr] != ')':
+            elem, ptr = parse_sexp(s, ptr)
+            l.append(elem)
+        ptr += 1 # Consume )
+        return l, ptr
+    else:
+        # Read atom
+        before = ptr
+        while ptr < len(s) and s[ptr] not in ' ()':
+            ptr += 1
+        return s[before:ptr], ptr
+
+
+def format_sexp(sexp):
+    if isinstance(sexp, str):
+        return sexp
+    return '(' + ' '.join(map(format_sexp, sexp)) + ')'
+
+
+def randomly_mask_sexp(sexp, probability):
+    if random.random() < probability:
+        return '?'
+
+    if isinstance(sexp, str):
+        return sexp
+
+    return list(map(lambda elem: randomly_mask_sexp(elem, probability), sexp))
+
+
+def randomly_mask_goal_terms(goal: str, probability=0.1) -> str:
+    'Perform data augmentation for Peano goals by masking some sub-terms'
+
+    sexp, _ = parse_sexp(goal)
+    sexp = randomly_mask_sexp(sexp, probability)
+    return format_sexp(sexp)

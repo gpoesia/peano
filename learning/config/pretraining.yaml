@@ -1,3 +1,5 @@
+task: train
+
 domain: equations
 number_of_episodes: 100000
 save_every: 1000
@@ -5,7 +7,27 @@ max_steps: 20
 max_state_length: 1000
 output_path: "data/pretraining-episodes-equations.{}.pkl"
 
+dataset: "data/pretraining-episodes-equations.{}.pkl"
 shard: 0
+shards: 1
+n_augmentations: 5
+batch_size: 4000
+gradient_steps: 100000
+checkpoint_every: 10000
+goal_mask_probability: 0.05
+
+policy:
+    type: DecisionTransformer
+    batch_size: 4000
+    discard_unsolved: true
+    mask_non_decision_tokens: false
+    max_negatives: 5
+    reformer:
+        hidden_size: 512
+        num_hidden_layers: 12
+
+job:
+    description: "Pre-training job"
 
 hydra:
     job:

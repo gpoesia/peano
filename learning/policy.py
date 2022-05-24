@@ -440,7 +440,7 @@ class DecisionTransformer(Policy):
             attn_layers=['local', 'lsh'] * (config.reformer.num_hidden_layers // 2),
             #            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
             # Default (64, 64) -- must multiply to seq len when training
-            axial_pos_embds=(64, config.reformer.hidden_size - 64),
+            axial_pos_embds_dim=(64, config.reformer.hidden_size - 64),
             bos_token_id=BOS,
             eos_token_id=EOS,
             pad_token_id=PAD,
@@ -453,6 +453,7 @@ class DecisionTransformer(Policy):
         self.train_len_multiple = 64*64
         self.batch_size = 4000
         self.mask_non_decision_tokens = config.mask_non_decision_tokens
+        self.max_negatives = config.max_negatives
 
     def initial_state(self, observation: str) -> torch.Tensor:
         raise NotImplementedError()
@@ -525,34 +526,43 @@ class DecisionTransformer(Policy):
         next_multiple_of_m = (n + m - 1) // m * m
         return F.pad(tensor, (0, next_multiple_of_m - n))
 
-    def extract_examples(self, episode) -> list[str]:
+    def extract_examples(self, episode,
+                         transform_state=lambda s: s,
+                         transform_goal=lambda g: g) -> list[str]:
         if not episode.success:
             return []
 
         # Positive.
-        def format_example(s, a, c):
-            return f'S {s}; {a}{c}'
+        def format_example(s, g, a, c):
+            return f'S {transform_state(s)}; G {transform_goal(g)}; {a}{c}'
 
         examples = []
 
         for i, (a, o) in enumerate(episode.actions):
             # Negative examples of actions.
             examples.extend([format_example(episode.states[i],
+                                            episode.goal,
                                             f'A {neg}', chr(NEGATIVE))
-                             for neg in episode.negative_actions[i]])
+                             for neg in self._sample_negatives(episode.negative_actions[i])])
 
             # Negative examples of outcomes.
             examples.extend([format_example(episode.states[i],
+                                            episode.goal,
                                             f'A {a}; O {neg}', chr(NEGATIVE))
-                             for neg in episode.negative_outcomes[i]])
+                             for neg in self._sample_negatives(episode.negative_outcomes[i])])
 
             # Positives
             examples.append(format_example(episode.states[i],
+                                           episode.goal,
                                            f'A {a}', chr(POSITIVE)))
             examples.append(format_example(episode.states[i],
+                                           episode.goal,
                                            f'A {a}; O {o}', chr(POSITIVE)))
 
         return examples
+
+    def _sample_negatives(self, negatives):
+        return random.sample(negatives, k=min(len(negatives), self.max_negatives))
 
     def get_loss(self, batch) -> torch.Tensor:
         t = encode_batch(batch, self.lm.device)
