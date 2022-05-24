@@ -10,25 +10,26 @@ import peano
 
 # Representing an existential type: each domain has /some/ associated problem type.
 class Problem:
-    def __init__(self, universe: peano.PyUniverse, description: str):
+    def __init__(self, universe: peano.PyUniverse, description: str, goal: str):
         self.universe = universe
         self.description = description
+        self.goal = goal
 
 
 class Domain:
     def generate(self, seed: int) -> Problem:
         raise NotImplementedError()
 
-    def make_problem(self, description: str) -> Problem:
+    def make_problem(self, description: str, goal: str) -> Problem:
         raise NotImplementedError()
 
-    def state(self, p) -> str:
+    def state(self, universe: peano.PyUniverse) -> str:
         raise NotImplementedError()
 
-    def actions(self, p) -> list[str]:
+    def actions(self, universe: peano.PyUniverse) -> list[str]:
         raise NotImplementedError()
 
-    def reward(self, p: peano.PyUniverse) -> bool:
+    def reward(self, universe: peano.PyUniverse) -> bool:
         raise NotImplementedError()
 
 
@@ -84,13 +85,13 @@ x : real.
 
     def generate(self, seed: int):
         if self.problems:
-            return self.make_problem(self.problems[seed % len(self.problems)])
+            return self.make_problem(self.problems[seed % len(self.problems)], '(= x ?)')
         raise ValueError('No cached problems and no generator implemented.')
 
-    def make_problem(self, equation: str):
+    def make_problem(self, equation: str, goal: str):
         u = self.base_universe.clone()
         u.incorporate(f'equation: {equation}.')
-        return Problem(u, equation)
+        return Problem(u, equation, goal)
 
     def reward(self, universe: peano.PyUniverse) -> bool:
         'Try to find a rational in the equivalence class of x'
@@ -108,8 +109,9 @@ x : real.
         return '; '.join(f'{{{"=".join(set(vals))}}} : {dtype}'
                          for vals, dtype in universe.state(self.ignore))
 
-    def actions(self, p):
+    def actions(self, _universe):
         return list(self.action_set)
+
 
 class SimplificationDomain(EquationsDomain):
     def __init__(self, level):
@@ -120,17 +122,21 @@ class Simpl0Domain(SimplificationDomain):
     def __init__(self):
         super().__init__(0)
 
+
 class Simpl1Domain(SimplificationDomain):
     def __init__(self):
         super().__init__(1)
+
 
 class Simpl2Domain(SimplificationDomain):
     def __init__(self):
         super().__init__(2)
 
+
 class Simpl3Domain(SimplificationDomain):
     def __init__(self):
         super().__init__(3)
+
 
 class Simpl4Domain(SimplificationDomain):
     def __init__(self):

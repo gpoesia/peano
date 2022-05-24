@@ -10,7 +10,7 @@ import numpy as np
 
 from environment import *
 import util
-from domain import EquationsDomain
+from domain import EquationsDomain, make_domain
 import logging
 
 
@@ -27,11 +27,12 @@ def _input_problem(domain):
 
     if opt == 'a':
         p = input('Problem: ')
-        return domain.make_problem(p)
-    elif opt == 'b':
-        return _choose_from_list('Pick a problem:',
-                                 [domain.generate(i) for i in range(40)],
-                                 lambda p: p.description)
+        g = input('Goal: ')
+        return domain.make_problem(p, g)
+
+    return _choose_from_list('Pick a problem:',
+                             [domain.generate(i) for i in range(40)],
+                             lambda p: p.description)
 
 
 def run_beam_search(agent_path, domain, device):
@@ -81,8 +82,6 @@ def evaluate_agent(agent_path, d, device, rollout_type):
 
         print(f'#{i} - {problem.description} - {rollout.success}')
 
-#        if rollout.success:
-
     print('Success rate:', np.mean(succ))
 
 
@@ -108,6 +107,50 @@ def interact_with_environment(domain):
 
     print('Solved in', i, 'steps!')
     print('Probability of this trajectory for a random policy:', prob)
+
+
+def interact_with_policy(policy_path, domain, device):
+    if policy_path is not None:
+        policy = torch.load(policy_path, map_location=device)
+    else:
+        from policy import RandomPolicy
+        policy = RandomPolicy()
+
+    try:
+        with torch.no_grad():
+            while True:
+                i, p = 0, _input_problem(domain)
+
+                while not domain.reward(p.universe):
+                    actions = domain.actions(p.universe)
+
+                    state = domain.state(p.universe)
+                    print('State:', state, '\tGoal:', p.goal)
+
+                    scores = policy.score_arrows(actions, state, p.goal).softmax(-1).tolist()
+                    action_scores = list(zip(actions, scores))
+                    action_scores.sort(key=lambda a_s: -a_s[1])
+
+                    a = _choose_from_list('Arrow to apply:',
+                                          action_scores,
+                                          to_str=lambda a_s: f'[{a_s[1]:.3f}]  {a_s[0]}')[0]
+
+                    outcomes = p.universe.apply(a)
+                    scores = policy.score_outcomes(list(map(lambda o: o.clean_str(p.universe), outcomes)),
+                                                   a,
+                                                   state,
+                                                   p.goal)
+                    outcome_scores = list(zip(outcomes, scores))
+                    outcome_scores.sort(key=lambda o_s: -o_s[1])
+
+                    o = _choose_from_list('Result to use:',
+                                          outcome_scores,
+                                          to_str=lambda o_s: f'[{o_s[1]:.3f}]  {o_s[0].clean_str(p.universe)}')[0]
+
+                    p.universe.define(f'!subd{i}', o)
+                    i += 1
+    except KeyboardInterrupt:
+        pass
 
 
 def try_random_rollouts(env, n_problems=10**3, n_steps=30):
@@ -138,6 +181,8 @@ if __name__ == '__main__':
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
+    parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
+    parser.add_argument('--policy', help='Interact with a pre-trained policy', action='store_true')
     parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
     parser.add_argument('--gpu', help='GPU device to use.', type=int)
     parser.add_argument('--verbose', help='Use debug-level .', action='store_true')
@@ -145,7 +190,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     env = SingleDomainEnvironment('equations')
-    domain = EquationsDomain()
+    domain = make_domain(opt.domain)
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
 
@@ -167,3 +212,5 @@ if __name__ == '__main__':
         interact_with_environment(domain)
     elif opt.random_rollouts:
         try_random_rollouts(env)
+    elif opt.policy:
+        interact_with_policy(opt.agent, domain, device)

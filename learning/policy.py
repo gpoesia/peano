@@ -415,7 +415,7 @@ class GRUPolicy(Policy):
 
 
 class RandomPolicy(Policy):
-    def __init__(self, config, all_arrows):
+    def __init__(self, config=None):
         super().__init__()
 
     def initial_state(self, observation: str) -> torch.Tensor:
@@ -424,10 +424,10 @@ class RandomPolicy(Policy):
     def next_state(self, state: torch.Tensor, observation: str):
         return state
 
-    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: torch.Tensor, goal: str) -> torch.Tensor:
         return torch.rand((len(arrows),))
 
-    def score_outcomes(self, outcomes: list[str], state: torch.Tensor) -> torch.Tensor:
+    def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
         return torch.rand((len(outcomes),))
 
 
@@ -467,20 +467,21 @@ class DecisionTransformer(Policy):
                           encode_batch([f';A {action};O {observation}'],
                                        device=state.device, bos=False, eos=False)[0]))
 
-    def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
-        return self._score_continuations(state, ';A ', arrows)
+    def score_arrows(self, arrows: list[str], state: str, goal: str) -> torch.Tensor:
+        return self._score_continuations(state, goal, '; A ', arrows)
 
-    def score_outcomes(self, outcomes: list[str], action: str, state: str) -> torch.Tensor:
-        return self._score_continuations(state, f';A {action};O ', outcomes)
+    def score_outcomes(self, outcomes: list[str], action: str, state: str, goal: str) -> torch.Tensor:
+        return self._score_continuations(state, goal, f'; A {action}; O ', outcomes)
 
     def _score_continuations(self,
                              state: str,
+                             goal: str,
                              prefix: str,
                              continuations: list[str]) -> torch.Tensor:
         if not continuations:
             return torch.tensor([])
 
-        state = encode_batch([f'S {state}'],
+        state = encode_batch([f'S {state}; G {goal}'],
                              self.lm.device,
                              eos=False)[0]
         P = encode_batch([prefix for _ in continuations],
