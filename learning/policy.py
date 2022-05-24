@@ -500,6 +500,11 @@ class DecisionTransformer(Policy):
             i = row * batch_rows
             j = min(i + batch_rows, input_ids.shape[0])
             X = input_ids[i:j, :]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('Calling DecisionTransformer LM:')
+                strs = decode_batch(X)
+                for s in strs:
+                    logger.debug('"%s"', s)
             outputs.append(self.lm(X, attention_mask=(X != PAD).float()).logits)
 
         output = torch.cat(outputs, dim=0)
