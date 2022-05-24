@@ -188,6 +188,9 @@ def train(cfg: DictConfig):
 
     print(len(examples), 'examples.')
 
+    if cfg.debug_examples:
+        breakpoint()
+
     setup_wandb(cfg)
 
     optimizer = torch.optim.Adam(policy.parameters())
