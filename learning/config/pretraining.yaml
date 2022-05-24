@@ -1,9 +1,9 @@
-domain: simpl3
-number_of_episodes: 10
-save_every: 5
-max_steps: 15
+domain: equations
+number_of_episodes: 100000
+save_every: 1000
+max_steps: 20
 max_state_length: 1000
-output_path: "pretraining-episodes-simpl3.{}.pkl"
+output_path: "data/pretraining-episodes-equations.{}.pkl"
 
 shard: 0
 
