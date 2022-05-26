@@ -3,6 +3,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import logging
 
 import torch
 from tqdm import tqdm
@@ -11,7 +12,7 @@ import numpy as np
 from environment import *
 import util
 from domain import EquationsDomain, make_domain
-import logging
+from policy import encode_batch, decode_batch, EOS
 
 
 def _choose_from_list(prompt, l, to_str=str):
@@ -112,6 +113,7 @@ def interact_with_environment(domain):
 def interact_with_policy(policy_path, domain, device):
     if policy_path is not None:
         policy = torch.load(policy_path, map_location=device)
+        policy.eval()
     else:
         from policy import RandomPolicy
         policy = RandomPolicy()
@@ -127,7 +129,7 @@ def interact_with_policy(policy_path, domain, device):
                     state = domain.state(p.universe)
                     print('State:', state, '\tGoal:', p.goal)
 
-                    scores = policy.score_arrows(actions, state, p.goal).softmax(-1).tolist()
+                    scores = policy.score_arrows(actions, state, p.goal).tolist()
                     action_scores = list(zip(actions, scores))
                     action_scores.sort(key=lambda a_s: -a_s[1])
 
@@ -139,7 +141,7 @@ def interact_with_policy(policy_path, domain, device):
                     scores = policy.score_outcomes(list(map(lambda o: o.clean_str(p.universe), outcomes)),
                                                    a,
                                                    state,
-                                                   p.goal)
+                                                   p.goal).tolist()
                     outcome_scores = list(zip(outcomes, scores))
                     outcome_scores.sort(key=lambda o_s: -o_s[1])
 
@@ -152,6 +154,23 @@ def interact_with_policy(policy_path, domain, device):
     except KeyboardInterrupt:
         pass
 
+
+def generate_from_policy(policy_path, domain, device):
+    policy = torch.load(policy_path, map_location=device)
+    policy.eval()
+
+    while True:
+        p = input('Prefix: ')
+
+        result = policy.lm.generate(encode_batch([p] * 5, device,
+                                                 bos=True, eos=False),
+                                                 max_length=500,
+                                                 eos_token_id=EOS)
+
+        Y = decode_batch(result)
+
+        for s in Y:
+            print(s)
 
 def try_random_rollouts(env, n_problems=10**3, n_steps=30):
     solved = []
@@ -177,6 +196,7 @@ def try_random_rollouts(env, n_problems=10**3, n_steps=30):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
     parser.add_argument('--eval', help='Evaluate the given agent on the test set.', action='store_true')
+    parser.add_argument('--generate', help='Query the language model to generate.', action='store_true')
     parser.add_argument('--beam-search', help='Run beam search with the given agent', action='store_true')
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
@@ -214,3 +234,5 @@ if __name__ == '__main__':
         try_random_rollouts(env)
     elif opt.policy:
         interact_with_policy(opt.agent, domain, device)
+    elif opt.generate:
+        generate_from_policy(opt.agent, domain, device)
