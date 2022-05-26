@@ -3,12 +3,14 @@
 import random
 import time
 import pickle
+import os
 
 import torch
 import wandb
 from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf, open_dict
+from transformers import AdamW
 
 from domain import make_domain, Domain
 from environment import Universe, Definition
@@ -173,6 +175,8 @@ def train(cfg: DictConfig):
 
     print('Extracting examples from episodes...')
 
+    episodes = episodes[:cfg.get('max_episodes', len(episodes))]
+
     for e in tqdm(episodes):
         e.success = True
 
@@ -188,12 +192,14 @@ def train(cfg: DictConfig):
 
     print(len(examples), 'examples.')
 
-    if cfg.debug_examples:
+    if cfg.get('debug_examples'):
         breakpoint()
 
     setup_wandb(cfg)
+    print('Saving checkpoints at', os.getcwd())
 
-    optimizer = torch.optim.Adam(policy.parameters())
+    optimizer = AdamW(policy.parameters(), lr=cfg.learning_rate)
+
     batch_size = cfg.batch_size
     policy.train()
     n_checkpoints = 0
@@ -253,7 +259,7 @@ def generate(cfg: DictConfig):
     print('Wrote', output_path)
 
 
-@hydra.main(config_path="config", config_name="pretraining")
+@hydra.main(version_base="1.2", config_path="config", config_name="pretraining")
 def main(cfg: DictConfig):
     if cfg.task == 'train':
         train(cfg)

@@ -12,7 +12,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
-from transformers import ReformerModelWithLMHead, ReformerConfig
+from transformers import ReformerModelWithLMHead, ReformerConfig, GPT2Config, GPT2LMHeadModel
 
 from environment import Universe
 from util import log, softmax, pop_max
@@ -435,21 +435,28 @@ class DecisionTransformer(Policy):
     def __init__(self, config):
         super().__init__()
 
-        configuration = ReformerConfig(
+        # configuration = ReformerConfig(
+        #     vocab_size=128,
+        #     attn_layers=['local', 'lsh'] * (config.reformer.num_hidden_layers // 2),
+        #     #            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
+        #     # Default (64, 64) -- must multiply to seq len when training
+        #     axial_pos_embds_dim=(64, config.reformer.hidden_size - 64),
+        #     bos_token_id=BOS,
+        #     eos_token_id=EOS,
+        #     pad_token_id=PAD,
+        #     is_decoder=True,
+        #     **config['reformer']
+        # )
+
+        configuration = GPT2Config(
             vocab_size=128,
-            attn_layers=['local', 'lsh'] * (config.reformer.num_hidden_layers // 2),
-            #            axial_pos_shape=(32, 32), # Default (64, 64) -- must multiply to seq len when training
-            # Default (64, 64) -- must multiply to seq len when training
-            axial_pos_embds_dim=(64, config.reformer.hidden_size - 64),
             bos_token_id=BOS,
             eos_token_id=EOS,
             pad_token_id=PAD,
-            is_decoder=True,
-            **config['reformer']
-        )
+            n_positions=2048)
 
         # Initializing a Reformer model
-        self.lm = ReformerModelWithLMHead(configuration)
+        self.lm = GPT2LMHeadModel(configuration) # ReformerModelWithLMHead(configuration)
         self.train_len_multiple = 64*64
         self.batch_size = 4000
         self.mask_non_decision_tokens = config.mask_non_decision_tokens
@@ -527,6 +534,7 @@ class DecisionTransformer(Policy):
         return scores
 
     def pad_train_batch(self, tensor: torch.Tensor):
+        return tensor
         m = self.train_len_multiple
         n = tensor.shape[-1]
         next_multiple_of_m = (n + m - 1) // m * m

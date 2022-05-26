@@ -24,7 +24,7 @@ def setup_wandb(cfg: DictConfig):
         # Disable wandb (i.e., make log() a no-op).
         wandb.log = lambda *args, **kwargs: None
 
-@hydra.main(config_path="config", config_name="test")
+@hydra.main(version_base="1.2", config_path="config", config_name="test")
 def main(cfg: DictConfig):
     setup_wandb(cfg)
 

@@ -100,19 +100,18 @@ def format_sexp(sexp):
     return '(' + ' '.join(map(format_sexp, sexp)) + ')'
 
 
-def randomly_mask_sexp(sexp, probability):
-    if random.random() < probability:
-        return '?'
-
+def randomly_mask_atoms(sexp, probability):
     if isinstance(sexp, str):
+        if random.random() < probability:
+            return '?'
         return sexp
 
-    return list(map(lambda elem: randomly_mask_sexp(elem, probability), sexp))
+    return list(map(lambda elem: randomly_mask_atoms(elem, probability), sexp))
 
 
 def randomly_mask_goal_terms(goal: str, probability=0.1) -> str:
     'Perform data augmentation for Peano goals by masking some sub-terms'
 
     sexp, _ = parse_sexp(goal)
-    sexp = randomly_mask_sexp(sexp, probability)
+    sexp = randomly_mask_atoms(sexp, probability)
     return format_sexp(sexp)
