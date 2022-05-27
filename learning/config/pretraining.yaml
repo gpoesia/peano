@@ -5,7 +5,7 @@ number_of_episodes: 100000
 save_every: 1000
 max_steps: 20
 max_state_length: 1000
-output_path: "data/pretraining-episodes-equations.{}.pkl"
+output_path: "data/pretraining-episodes-equations.cnt.{}.pkl"
 
 dataset: "/mnt/fs3/poesia/peano/learning/data/pretraining-episodes-equations.{}.pkl"
 shard: 0

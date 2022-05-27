@@ -4,6 +4,7 @@ import random
 import time
 import pickle
 import os
+import collections
 
 import torch
 import wandb
@@ -19,19 +20,23 @@ from util import shuffle_state, randomly_mask_goal_terms, sample_batch, format_p
 from main import setup_wandb
 
 
-def pick_equality(state: list[(list[str], str)]) -> (str, str):
-    random.shuffle(state)
+def pick_equality(state: list[(list[str], str)], counts: dict) -> (str, str):
+    all_equalities, weights = [], []
 
     for vals, _ in state:
+        # NOTE: It could be good to take a random string realization
+        # of each term, instead of the one in the state, to add more
+        # variation to the training data and reinforce the underlying
+        # notion of equivalence.
         vals = list(set(vals))
-        if len(vals) > 1:
-            # TODO: It could be good to take a random string realization
-            # of the term, instead of the one in the state, to add more
-            # variation to the training data and reinforce the underlying
-            # notion of equivalence.
-            return random.sample(vals, k=2)
+        for i, v1 in enumerate(vals):
+            for v2 in vals[i+1:]:
+                counts[(v1, v2)] += 1
+                counts[(v2, v1)] += 1
+                all_equalities.append((v1, v2))
+                weights.append(1 / counts[(v1, v2)])
 
-    return None
+    return random.choices(all_equalities, weights, k=1)[0]
 
 
 def equality_holds_after_replay(u: Universe, actions: list, equality: (str, str)):
@@ -46,7 +51,11 @@ def equality_holds_after_replay(u: Universe, actions: list, equality: (str, str)
     return u.are_equivalent(equality[0], equality[1])
 
 
-def generate_pretraining_episode(d: Domain, max_steps: int, max_state_length: int, seed: int):
+def generate_pretraining_episode(d: Domain,
+                                 max_steps: int,
+                                 max_state_length: int,
+                                 seed: int,
+                                 counts: dict):
     # Generates a random episode with the following steps:
     # 1- Sample a problem / starting state.
     # 2- Take random actions / choose random outcomes.
@@ -81,11 +90,19 @@ def generate_pretraining_episode(d: Domain, max_steps: int, max_state_length: in
             # Ignore this step if the action produced no outcomes.
             continue
 
-        outcome = random.choice(outcomes)
+        outcomes_strs = [o.clean_str(u) for o in outcomes]
+
+        for o in outcomes_strs:
+            counts[o] += 1
+
+        weights = [1 / counts[o] for o in outcomes_strs]
+
+        o_idx = random.choices(list(range(len(outcomes_strs))), weights=weights, k=1)[0]
+        outcome = outcomes[o_idx] # random.choice(outcomes)
         outcome_str = outcome.clean_str(u)
 
         neg_actions = [a for a in actions if a != action]
-        neg_outcomes = [o.clean_str(u) for o in outcomes if o is not outcome]
+        neg_outcomes = outcomes_strs[:o_idx] + outcomes_strs[o_idx + 1:]
 
         u = make_updated_universe(u, outcome, '!subd{n_steps}')
 
@@ -104,7 +121,7 @@ def generate_pretraining_episode(d: Domain, max_steps: int, max_state_length: in
         n_steps += 1
 
     # Step #3: choose random equality.
-    equality = pick_equality(u.state(d.ignore))
+    equality = pick_equality(u.state(d.ignore), counts)
 
     if equality is None:
         raise ValueError('No equality to be extracted.')
@@ -238,13 +255,15 @@ def generate(cfg: DictConfig):
         output_path = cfg.output_path
 
     episodes = []
+    counts = collections.defaultdict(int)
 
     with tqdm(total=n) as pbar:
         while len(episodes) < n:
             e = generate_pretraining_episode(domain,
                                              cfg.max_steps,
                                              cfg.max_state_length,
-                                             random.randint(0, 10**7))
+                                             random.randint(0, 10**7),
+                                             counts)
             if e is not None:
                 episodes.append(e)
                 pbar.update(1)
