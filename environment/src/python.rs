@@ -6,12 +6,12 @@ use pyo3::Python;
 use rand::Rng;
 use rand_pcg::Pcg64;
 
-use crate::universe::{Universe, Definition};
-use crate::domain::{new_rng, Domain, Equations, Blank};
+use crate::universe::{Universe, EGraphUniverse, Definition};
+use crate::domain::{new_rng, Domain, Blank};
 
 #[pyclass(unsendable)]
 struct PyUniverse {
-    pub universe: Universe,
+    pub universe: EGraphUniverse,
     pub domain: Arc<dyn Domain>,
     pub start_state: String,
 }
@@ -44,9 +44,9 @@ impl PyDefinition {
             "{} : {}",
             match &self.def.value {
                 None => String::from("_"),
-                Some(v) => v.in_context(&u.universe.context).to_string()
+                Some(v) => v.in_context(&u.universe.context()).to_string()
             },
-            self.def.dtype.in_context(&u.universe.context).to_string()
+            self.def.dtype.in_context(&u.universe.context()).to_string()
         )
     }
 
@@ -166,8 +166,6 @@ thread_local!{
     pub static DOMAINS: HashMap<&'static str, Arc<dyn Domain>> = {
         let mut map : HashMap<&'static str, Arc<dyn Domain>> = HashMap::new();
         map.insert("blank", Arc::new(Blank::new()));
-        map.insert("equations", Arc::new(Equations::new_ct()));
-        map.insert("equations-easy", Arc::new(Equations::new_easy()));
         map
     };
 }

@@ -9,7 +9,7 @@ use rustyline::Editor;
 use tempfile::NamedTempFile;
 use num_rational::Rational64;
 
-use peano::universe::{Universe, Context, Term};
+use peano::universe::{Universe, EGraphUniverse, Derivation, Context, Term};
 
 // Program used to open images (used to visualize the underlying egraph).
 #[cfg(target_os = "linux")]
@@ -23,12 +23,13 @@ const OPEN_IMAGE: &'static str = "";
 
 
 pub struct Shell {
-    universe: Universe,
+    universe: Box<dyn Universe>,
 }
 
 impl Shell {
     pub fn new() -> Shell {
-        Shell { universe: Universe::new() }
+        // Shell { universe: Box::new(EGraphUniverse::new()) }
+        Shell { universe: Box::new(Derivation::new()) }
     }
 
     pub fn load_path(&mut self, path: &str) -> Result<usize, String> {
@@ -97,7 +98,7 @@ impl Shell {
     pub fn visualize_egraph(&mut self) -> Result<ExitStatus, io::Error> {
         let file = NamedTempFile::new()?;
         let path = file.into_temp_path();
-        self.universe.to_png(&path)?;
+        self.universe.to_png(path.to_str().unwrap())?;
 
         Command::new(OPEN_IMAGE)
             .args([&path])
@@ -118,7 +119,34 @@ impl Shell {
         }
     }
 
-    pub fn apply(&mut self, args: &str) -> () {
+    pub fn apply(&mut self, action: &str, rl: &mut Editor<()>) -> () {
+        let defs = self.universe.application_results(&action.to_string());
+
+        if defs.len() == 0 {
+            println!("No results.");
+        } else {
+            for (i, def) in defs.iter().enumerate() {
+                println!("{} - {} : {}",
+                         i,
+                         if let Some(v) = &def.value { v.to_string() } else { String::from("_") },
+                         def.dtype);
+            }
+
+            match rl.readline("  Result to add: ") {
+                Ok(line) => {
+                    match line.parse::<usize>() {
+                        Ok(idx) if idx < defs.len() => {
+                            self.universe.define(String::from("r"), defs[idx].clone(), true);
+                        },
+                        _ => { println!("Nothing added.") }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn apply_explode(&mut self, args: &str) -> () {
         for a in args.split(" ") {
             self.universe.apply(&a.to_string());
         }
@@ -164,8 +192,11 @@ impl Shell {
                                 Ok(n) => println!("{} definitions loaded.", n),
                                 Err(err) => println!("Error loading {}: {}", args, err)
                             }
+                        } else if command == "apply_explode" {
+                            self.apply_explode(args);
+                            println!("{}", self.universe.dump_context());
                         } else if command == "apply" {
-                            self.apply(args);
+                            self.apply(args, &mut rl);
                             println!("{}", self.universe.dump_context());
                         } else if command == "inhabited" {
                             match self.is_inhabited(&args) {

@@ -25,7 +25,7 @@ impl VerificationScript {
         &self.name
     }
 
-    pub fn execute(&self, mut u: Universe) -> Result<(), VerificationError> {
+    pub fn execute(&self, mut u: Box<dyn Universe>) -> Result<(), VerificationError> {
         for instr in self.instructions.iter() {
             match instr {
                 VerificationInstruction::Definition(name, def) => {

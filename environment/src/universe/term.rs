@@ -52,6 +52,10 @@ impl Definition {
     pub fn new_opaque(dtype: Rc<Term>) -> Definition {
         Definition { dtype: dtype, value: None }
     }
+
+    pub fn is_prop(&self, ctx: &Context) -> bool {
+        self.dtype.is_prop(ctx)
+    }
 }
 
 #[derive(Parser)]
@@ -60,6 +64,10 @@ pub(super) struct TermParser;
 
 impl Context {
     pub fn new() -> Context {
+        Context::new_with_builtins(&vec![])
+    }
+
+    pub fn new_with_builtins(builtin_arrows: &[&str]) -> Context {
         let type_const = Rc::new(Term::Atom { name: TYPE.to_string() });
         let prop_const = Rc::new(Term::Atom {name: PROP.to_string() });
         let type_const_def = Definition { dtype: type_const.clone(), value: None };
@@ -72,7 +80,9 @@ impl Context {
                             };
         c.definitions.insert(TYPE.to_string(), vec![type_const_def.clone()]);
         c.definitions.insert(PROP.to_string(), vec![type_const_def]);
-        c.arrows.insert(String::from("eval"));
+
+        builtin_arrows.iter().for_each(|v| { c.arrows.insert(String::from(*v)); });
+
         c
     }
 
@@ -232,7 +242,7 @@ impl ToString for Context {
 }
 
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub enum Term {
     Declaration { name: String, dtype: Rc<Term> },
     Atom { name: String },
@@ -351,6 +361,10 @@ impl<'a> Term {
         )
     }
 
+    pub fn is_prop(self: &Rc<Term>, ctx: &Context) -> bool {
+        &self.get_type(ctx) == ctx.get_prop_constant()
+    }
+
     pub fn free_variables(self: &Rc<Term>) -> VarSet {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.free_variables(),
@@ -407,29 +421,38 @@ impl<'a> Term {
                     output_type: body.get_type(ctx)
                 }),
             Term::Application { function, arguments } => {
-                if let Term::Arrow { input_types, output_type } = function.get_type(ctx).as_ref() {
-                    let mut input_types = input_types.clone();
-                    let mut output_type = output_type.clone();
-
-                    for (i, arg) in arguments.iter().enumerate() {
-                        let (types_before, types_after) = input_types.split_at_mut(i+1);
-                        // dtype is ignored since we here assume that arguments have the expected types.
-                        if let Term::Declaration { name, dtype: _ } = types_before[i].as_ref() {
-                            let v_ctx = arg.eval(ctx);
-                            for j in 0..types_after.len() {
-                                types_after[j] = types_after[j].replace(name, &v_ctx).eval(ctx)
-                            }
-                            output_type = output_type.replace(name, &v_ctx).eval(ctx)
-                        }
-                    }
-
-                    if arguments.len() == input_types.len() {
-                        return output_type;
-                    } else {
-                        return Rc::new(Term::Arrow { input_types, output_type });
+                // HACK: This would be unnecessary if we added types to all equalities (= type a b).
+                if let Term::Atom { name } = function.as_ref() {
+                    if name == "=" || name == "!=" {
+                        return ctx.get_prop_constant().clone();
                     }
                 }
-                panic!()
+
+                match function.get_type(ctx).as_ref() {
+                    Term::Arrow { input_types, output_type } => {
+                        let mut input_types = input_types.clone();
+                        let mut output_type = output_type.clone();
+
+                        for (i, arg) in arguments.iter().enumerate() {
+                            let (types_before, types_after) = input_types.split_at_mut(i+1);
+                            // dtype is ignored since we here assume that arguments have the expected types.
+                            if let Term::Declaration { name, dtype: _ } = types_before[i].as_ref() {
+                                let v_ctx = arg.eval(ctx);
+                                for j in 0..types_after.len() {
+                                    types_after[j] = types_after[j].replace(name, &v_ctx).eval(ctx)
+                                }
+                                output_type = output_type.replace(name, &v_ctx).eval(ctx)
+                            }
+                        }
+
+                        if arguments.len() == input_types.len() {
+                            return output_type;
+                        } else {
+                            return Rc::new(Term::Arrow { input_types, output_type });
+                        }
+                    },
+                    _ => panic!("Ill-typed expression: applying arguments to a non-arrow.")
+                }
             }
         }
     }

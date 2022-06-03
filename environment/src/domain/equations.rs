@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use crate::universe::{Term, Universe, Definition};
+use crate::universe::{Term, Universe, EGraphUniverse, Definition};
 
 use commoncore::domain::equations::{Equations as CCEquations, Term as CCTerm};
 
@@ -8,14 +8,14 @@ use super::Domain;
 pub struct Equations {
     #[allow(dead_code)]
     cc_equations: CCEquations,
-    base_universe: Universe,
+    base_universe: EGraphUniverse,
     real_dtype: Rc<Term>,
     variable_term: Rc<Term>,
 }
 
 impl Equations {
     pub fn new_with_templates(templates: &str) -> Equations {
-        let mut u = Universe::new();
+        let mut u = EGraphUniverse::new();
         u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
 
         Equations {
@@ -40,7 +40,7 @@ impl Domain for Equations {
         String::from("equations")
     }
 
-    fn generate(&self, seed: u64) -> (Universe, String) {
+    fn generate(&self, seed: u64) -> (EGraphUniverse, String) {
         let eq = self.cc_equations.generate_eq_term(seed);
         let eq_term = commoncore_term_to_peano_term(eq.t.as_ref());
         let problem_str = format!("{}.", eq_term);
@@ -63,7 +63,7 @@ impl Domain for Equations {
         u64::MAX
     }
 
-    fn reward(&self, u: &Universe) -> bool {
+    fn reward(&self, u: &EGraphUniverse) -> bool {
         return u.value_of(&self.variable_term).is_some();
     }
 }

@@ -3,7 +3,7 @@ mod equations;
 mod blank;
 
 pub use domain::*;
-pub use equations::*;
+// pub use equations::*;
 pub use blank::*;
 
 use rand_pcg::Pcg64;

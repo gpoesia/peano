@@ -6,7 +6,7 @@
  * was solved.
  */
 
-use crate::universe::Universe;
+use crate::universe::{EGraphUniverse};
 
 pub trait Domain {
     // A string identifying the domain.
@@ -18,9 +18,9 @@ pub trait Domain {
     fn size(&self) -> u64;
 
     // Generates the i-th problem in the domain, along with a string representation.
-    fn generate(&self, seed: u64) -> (Universe, String);
+    fn generate(&self, seed: u64) -> (EGraphUniverse, String);
 
     // Given the universe containing the current state, returns whether
     // the posed problem has been solved.
-    fn reward(&self, universe: &Universe) -> bool;
+    fn reward(&self, universe: &EGraphUniverse) -> bool;
 }

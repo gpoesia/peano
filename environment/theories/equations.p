@@ -37,47 +37,19 @@ verify simple_xy_eqs {
     assume (= y (* x x)).
 
     construct (- (+ x 3) 3) by -.
-    show (= (- (+ x 3) 3) 7) by eval.
-    show (= (+ x (- 3 3)) 7) by +-_assoc.
+    show (= (- (+ x 3) 3) (+ x (- 3 3))) by +-_assoc.
     show (= (- 3 3) 0) by eval.
-    show (= x 7) by +0_id.
-    show (= y 49) by eval.
-}
-
-verify eq_with_div {
-    let x : real.
-    assume (= (* 2 x) 10).
-
-    construct (/ (* 2 x) 2) by /.
-    show (= (* x 2) (* 2 x)) by *_comm.
-    show (= (/ (* x 2) 2) (* x (/ 2 2))) by */_assoc.
-    show (= (/ 2 2) 1) by eval.
-    show (= (/ 10 2) 5) by eval.
-    show (= x 5) by *1_id.
-}
-
-verify eq_with_nonzero_assumption {
-    let x : real.
-    assume (!= x (- 5 5)).
-    assume (= (/ 10 x) 5).
-
-    show (= (- 5 5) 0) by eval. /* Implicitly gives (!= x 0) */
-
-    construct (* (/ 10 x) x) by *.
-    show (= (* (/ 10 x) x) (* x (/ 10 x))) by *_comm.
-    show (= (* x (/ 10 x)) (/ (* x 10) x)) by */_assoc.
-    show (= (* x 10) (* 10 x)) by *_comm.
-    show (= (/ (* 10 x) x) (* 10 (/ x x))) by */_assoc.
-
-    /* This fails if we remove the assumption that x is not zero. */
-    show (= (/ x x) 1) by div_self_id.
-    show (= (* 5 x) 10) by *1_id.
-
-    /* Solution now follows just like eq_with_div */
-    construct (/ (* 5 x) 5) by /.
-    show (= (* x 5) (* 5 x)) by *_comm.
-    show (= (/ (* x 5) 5) (* x (/ 5 5))) by */_assoc.
-    show (= (/ 5 5) 1) by eval.
-    show (= (/ 10 5) 2) by eval.
-    show (= x 2) by *1_id.
+    show (= (- (+ x 3) 3) (+ x 0)) by rewrite.
+    show (= (+ x 0) x) by +0_id.
+    show (= (- (+ x 3) 3) x) by rewrite.
+    construct (- 10 3) by -.
+    show (= (- (+ x 3) 3) (- (+ x 3) 3)) by eq_refl.
+    show (= x (- (+ x 3) 3)) by rewrite.
+    show (= x (- 10 3)) by rewrite.
+    show (= (- 10 3) 7) by eval.
+    show (= x 7) by rewrite.
+    show (= y (* 7 x)) by rewrite.
+    show (= y (* 7 7)) by rewrite.
+    show (= (* 7 7) 49) by eval.
+    show (= y 49) by rewrite.
 }

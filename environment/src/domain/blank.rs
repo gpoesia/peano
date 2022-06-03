@@ -2,7 +2,7 @@
 // rewards or a space of problems.
 // This is used as the base domain to implement domains in Python instead.
 
-use crate::universe::Universe;
+use crate::universe::{EGraphUniverse};
 
 use super::Domain;
 
@@ -19,15 +19,15 @@ impl Domain for Blank {
         String::from("blank")
     }
 
-    fn generate(&self, _seed: u64) -> (Universe, String) {
-        (Universe::new(), String::new())
+    fn generate(&self, _seed: u64) -> (EGraphUniverse, String) {
+        (EGraphUniverse::new(), String::new())
     }
 
     fn size(&self) -> u64 {
         1
     }
 
-    fn reward(&self, _u: &Universe) -> bool {
+    fn reward(&self, _u: &EGraphUniverse) -> bool {
         false
     }
 }
