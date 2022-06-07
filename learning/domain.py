@@ -4,6 +4,8 @@ import os
 import pickle
 from fractions import Fraction
 import random
+from typing import Optional
+import re
 
 import peano
 
@@ -37,7 +39,7 @@ class EquationsDomain(Domain):
     def __init__(self, cached_problems='linear-equations.pkl'):
         blank_domain = peano.get_domain('blank')
         self.base_universe = blank_domain.generate(0)
-        self.base_universe.incorporate('''
+        equations_theory = '''
 real : type.
 
 = : [(t : type) -> t -> t -> prop].
@@ -71,10 +73,18 @@ div_self_id : [(a : real) -> (!= a 0) -> (= (/ a a) 1)].
 *0_null : [(a : real) -> (= (* a 0) 0)].
 0_div_null : [(a : real) -> (!= a 0) -> (= (/ 0 a) 0)].
 x : real.
-''')
+'''
+        self.base_universe.incorporate(equations_theory)
+        self.base_derivation = peano.PyDerivation()
+        self.base_derivation.incorporate(equations_theory)
+
         self.action_set = set(self.base_universe.actions())
+        self.d_action_set = set(self.base_derivation.actions())
+
         self.ignore = self.action_set.union({'real'})
+        self.d_ignore = self.d_action_set.union({'real'})
         self.action_set -= {'=', '!='}
+        self.d_action_set -= {'=', '!='}
 
         if cached_problems:
             with open(os.path.join(os.path.dirname(__file__), cached_problems), 'rb') as f:
@@ -88,8 +98,18 @@ x : real.
             return self.make_problem(self.problems[seed % len(self.problems)], '(= x ?)')
         raise ValueError('No cached problems and no generator implemented.')
 
+    def generate_derivation(self, seed: int):
+        if self.problems:
+            return self.start_derivation(self.problems[seed % len(self.problems)], '(= x ?)')
+        raise ValueError('No cached problems and no generator implemented.')
+
     def make_problem(self, equation: str, goal: str):
         u = self.base_universe.clone()
+        u.incorporate(f'equation: {equation}.')
+        return Problem(u, equation, goal)
+
+    def start_derivation(self, equation: str, goal: str):
+        u = self.base_derivation.clone()
         u.incorporate(f'equation: {equation}.')
         return Problem(u, equation, goal)
 
@@ -105,12 +125,31 @@ x : real.
                 pass
         return False
 
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to an equality between x and a rational constant.'
+        for name, val, _deps in universe.state():
+            try:
+                m = re.match(r'\(= x (.*)\)', val)
+                if m:
+                    Fraction(m.group(1))
+                    return True
+            except ValueError:
+                pass
+        return False
+
     def state(self, universe) -> str:
         return '; '.join(f'{{{"=".join(set(vals))}}} : {dtype}'
                          for vals, dtype in universe.state(self.ignore))
 
+    def derivation_state(self, universe) -> str:
+        return '. '.join(f'{name}: {val}'
+                         for name, val, _deps in universe.state(self.d_ignore))
+
     def actions(self, _universe):
         return list(self.action_set)
+
+    def derivation_actions(self, _universe):
+        return list(self.d_action_set)
 
 
 class SimplificationDomain(EquationsDomain):

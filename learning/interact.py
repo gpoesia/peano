@@ -13,6 +13,7 @@ from environment import *
 import util
 from domain import EquationsDomain, make_domain
 from policy import encode_batch, decode_batch, EOS
+from search import batched_forward_search
 
 
 def _choose_from_list(prompt, l, to_str=str):
@@ -23,16 +24,19 @@ def _choose_from_list(prompt, l, to_str=str):
     return l[int(input('> '))]
 
 
-def _input_problem(domain):
+def _input_problem(domain, derivation=False):
     opt = input('a) Type problem, b) select one from list, or Enter for debug mode: ')
 
     if opt == 'a':
         p = input('Problem: ')
         g = input('Goal: ')
-        return domain.make_problem(p, g)
+        return (domain.make_problem
+                if not derivation
+                else domain.start_derivation)(p, g)
 
+    generate = domain.generate if not derivation else domain.generate_derivation
     return _choose_from_list('Pick a problem:',
-                             [domain.generate(i) for i in range(40)],
+                             [generate(i) for i in range(40)],
                              lambda p: p.description)
 
 
@@ -108,6 +112,39 @@ def interact_with_environment(domain):
 
     print('Solved in', i, 'steps!')
     print('Probability of this trajectory for a random policy:', prob)
+
+
+def make_derivation(domain):
+    i, p = 0, _input_problem(domain, derivation=True)
+
+    while not domain.derivation_done(p.universe):
+        actions = domain.derivation_actions(p.universe)
+
+        print('Derivation so far:', domain.derivation_state(p.universe))
+        a = _choose_from_list('Arrow to apply:', actions)
+
+        outcomes = p.universe.apply(a)
+        o = _choose_from_list('Result to use:', outcomes)
+
+        p.universe.define(f'!subd{i}', o)
+        i += 1
+
+
+def run_proof_search(domain):
+    i, p = 0, _input_problem(domain, derivation=True)
+
+    episode = batched_forward_search(
+        domain,
+        p,
+        utility=lambda val: 1 / len(val) + random.random() * 0.001,
+        batch_size=20,
+        max_per_type=1
+    )
+
+    print('Success?', episode.success)
+    print('Depth:', episode.iterations)
+    print('Nodes discovered:', episode.steps_created)
+    print('Nodes added:', episode.steps_added)
 
 
 def interact_with_policy(policy_path, domain, device):
@@ -201,6 +238,8 @@ if __name__ == '__main__':
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
+    parser.add_argument('--derivation', help='Solve a problem manually', action='store_true')
+    parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
     parser.add_argument('--policy', help='Interact with a pre-trained policy', action='store_true')
     parser.add_argument('--random-rollouts', help='Try to solve problems using random rollouts', action='store_true')
@@ -209,7 +248,6 @@ if __name__ == '__main__':
 
     opt = parser.parse_args()
 
-    env = SingleDomainEnvironment('equations')
     domain = make_domain(opt.domain)
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
@@ -230,7 +268,12 @@ if __name__ == '__main__':
         run_best_first_search(opt.agent, domain, device)
     elif opt.environment:
         interact_with_environment(domain)
+    elif opt.derivation:
+        make_derivation(domain)
+    elif opt.proof_search:
+        run_proof_search(domain)
     elif opt.random_rollouts:
+        env = SingleDomainEnvironment('equations')
         try_random_rollouts(env)
     elif opt.policy:
         interact_with_policy(opt.agent, domain, device)

@@ -410,7 +410,7 @@ impl Universe for Derivation {
         None
     }
 
-    fn value_of(&self, t: &Rc<Term>) -> Option<Rational64> {
+    fn value_of(&self, _t: &Rc<Term>) -> Option<Rational64> {
         panic!()
     }
 
@@ -426,7 +426,7 @@ impl Universe for Derivation {
         &mut self.context_
     }
 
-    fn to_png(&self, path: &str) -> Result<(), io::Error> {
+    fn to_png(&self, _path: &str) -> Result<(), io::Error> {
         Err(io::Error::from(io::ErrorKind::Other))
     }
 

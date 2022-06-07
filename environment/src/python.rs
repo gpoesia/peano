@@ -6,7 +6,7 @@ use pyo3::Python;
 use rand::Rng;
 use rand_pcg::Pcg64;
 
-use crate::universe::{Universe, EGraphUniverse, Definition};
+use crate::universe::{Context, Universe, EGraphUniverse, Derivation, Definition};
 use crate::domain::{new_rng, Domain, Blank};
 
 #[pyclass(unsendable)]
@@ -14,6 +14,11 @@ struct PyUniverse {
     pub universe: EGraphUniverse,
     pub domain: Arc<dyn Domain>,
     pub start_state: String,
+}
+
+#[pyclass(unsendable)]
+struct PyDerivation {
+    pub universe: Derivation,
 }
 
 #[pyclass(unsendable)]
@@ -48,6 +53,10 @@ impl PyDefinition {
             },
             self.def.dtype.in_context(&u.universe.context()).to_string()
         )
+    }
+
+    pub fn clean_dtype(&self, u: &PyDerivation) -> String {
+        self.def.dtype.in_context(&u.universe.context()).to_string()
     }
 
     pub fn __repr__(&self) -> String {
@@ -147,6 +156,87 @@ impl PyUniverse {
 }
 
 #[pymethods]
+impl PyDerivation {
+    #[new]
+    pub fn new() -> PyDerivation {
+        PyDerivation {
+            universe: Derivation::new()
+        }
+    }
+
+    pub fn actions(&self) -> Vec<String> {
+        self.universe.actions().map(|a| a.clone()).collect()
+    }
+
+    pub fn apply(&self, action: String) -> Vec<PyDefinition> {
+        self.universe.application_results(&action)
+            .into_iter().map(|d| PyDefinition { def: d }).collect()
+    }
+
+    pub fn define(&mut self, name: String, d: &PyDefinition) {
+        self.universe.define(name, d.def.clone(), true);
+    }
+
+    pub fn is_prop(&self, d: &PyDefinition) -> bool {
+        d.def.is_prop(&self.universe.context_)
+    }
+
+    pub fn incorporate(&mut self, context: &str) -> PyResult<bool> {
+        match context.parse() {
+            Ok(context) => {
+                self.universe.incorporate(&context);
+                Ok(true)
+            },
+            Err(e) => Err(PyValueError::new_err(format!("Failed to parse context: {}", e)))
+        }
+    }
+
+    pub fn clone(&self) -> PyDerivation {
+        PyDerivation {
+            universe: self.universe.clone(),
+        }
+    }
+
+    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(String, String, Vec<String>)> {
+        let mut s = Vec::new();
+
+        for name in self.universe.context_.insertion_order.iter() {
+            if ignore.as_ref().map_or(false, |s| s.contains(name)) {
+                continue;
+            }
+
+            let def = self.universe.context_.lookup(name).unwrap();
+
+            let value = value_of(&def, &self.universe.context_);
+
+            let dependencies = match &def.value {
+                Some(v) => v.free_atoms().iter().map(|v| v.clone()).collect(),
+                None => vec![],
+            };
+
+            s.push((name.clone(), value, dependencies));
+        }
+
+        s
+    }
+
+    pub fn value_of(&self, def: &PyDefinition) -> String {
+        value_of(&def.def, &self.universe.context_)
+    }
+}
+
+fn value_of(def: &Definition, ctx: &Context) -> String {
+    if def.is_prop(ctx) {
+        def.dtype.in_context(ctx).to_string()
+    } else {
+        match &def.value {
+            Some(v) => v.in_context(ctx).to_string(),
+            None => String::new()
+        }
+    }
+}
+
+#[pymethods]
 impl PyDomain {
     pub fn name(&self) -> String {
         self.domain.name()
@@ -191,6 +281,7 @@ fn get_domain(name: String) -> PyResult<PyDomain> {
 fn peano(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyUniverse>()?;
     m.add_class::<PyDefinition>()?;
+    m.add_class::<PyDerivation>()?;
     m.add_function(wrap_pyfunction!(domains, m)?)?;
     m.add_function(wrap_pyfunction!(get_domain, m)?)?;
     Ok(())

@@ -405,6 +405,42 @@ impl<'a> Term {
         }
     }
 
+    pub fn free_atoms(self: &Rc<Term>) -> VarSet {
+        match self.as_ref() {
+            Term::Declaration { name: _, dtype } => dtype.free_atoms(),
+            Term::Atom { name } => {
+                SmallSet::from_iter([name.clone()])
+            },
+            Term::Application { function, arguments } => {
+                let mut s = function.free_atoms();
+                for a in arguments {
+                    for p in a.free_atoms().iter() {
+                        s.insert(p.clone());
+                    }
+                }
+                s
+            },
+            Term::Arrow { input_types, output_type } => {
+                let mut s = output_type.free_atoms();
+                for t in input_types {
+                    if let Term::Declaration { name, dtype: _ } = t.as_ref() {
+                        s.remove(&name);
+                    }
+                }
+                s
+            },
+            Term::Lambda { parameters, body } => {
+                let mut s = body.free_atoms();
+                for t in parameters {
+                    if let Term::Declaration { name, dtype: _ } = t.as_ref() {
+                        s.remove(&name);
+                    }
+                }
+                s
+            }
+        }
+    }
+
     pub fn get_type(self: &Rc<Term>, ctx: &Context) -> Rc<Term> {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.clone(),
