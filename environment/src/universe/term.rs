@@ -11,6 +11,7 @@ use pest::Parser;
 use pest::iterators::Pair;
 use pest::error::{Error as PestError};
 use smallset::SmallSet;
+use linear_map::LinearMap;
 
 use egg::{RecExpr, SymbolLang};
 
@@ -23,7 +24,8 @@ const PROP: &str = "prop";
 // Prefix added to the names of all lambda and arrow parameters.
 // This is used to simplify the test of whether a term has free variables.
 const PARAMETER_PREFIX: &str = "$";
-type VarSet = SmallSet<[String; 5]>;
+pub type VarSet = SmallSet<[String; 5]>;
+pub type Unifier = LinearMap<String, Rc<Term>>;
 
 #[derive(Clone)]
 pub struct Context {
@@ -600,6 +602,57 @@ impl<'a> Term {
         }
     }
 
+    // Tries to unify the parameters (e.g., $a) in `self` with the concrete terms in `concrete`.
+    // If succeeds, returns the unification map in `mapping`, and returns true. Otherwise,
+    // returns false, and the partial mapping should be ignored.
+    pub fn unify_params(self: &Rc<Term>, concrete: &Rc<Term>, mapping: &mut Unifier) -> bool {
+        match (self.as_ref(), concrete.as_ref()) {
+            // self is an atom which is a parameter name.
+            (Term::Atom { name: pname }, t) if is_parameter_name(pname) => {
+                match mapping.entry(pname.clone()) {
+                    // If occupied, return whether t and the current value are consistent.
+                    linear_map::Entry::Occupied(e) => { e.get().as_ref() == t },
+                    // Otherwise, unify this parameter with the concrete value.
+                    linear_map::Entry::Vacant(e) => { e.insert(concrete.clone()); true},
+                }
+            },
+            // self is an atom which is not a parameter name; only unifies if they match.
+            (Term::Atom { name: n1 }, Term::Atom { name: n2 }) => { n1 == n2 },
+            // self is an application.
+            (Term::Application { function: f1, arguments: a1 },
+             Term::Application { function: f2, arguments: a2 }) => {
+                if a1.len() != a2.len() || !f1.unify_params(f2, mapping) {
+                    return false;
+                }
+
+                for (arg1, arg2) in a1.iter().zip(a2.iter()) {
+                    if !arg1.unify_params(arg2, mapping) {
+                        return false;
+                    }
+                }
+
+                true
+            },
+
+            // self is an arrow.
+            (Term::Arrow { input_types: i1, output_type: o1 },
+             Term::Arrow { input_types: i2, output_type: o2 }) => {
+                if i1.len() != i2.len() || !o1.unify_params(o2, mapping) {
+                    return false;
+                }
+
+                for (t1, t2) in i1.iter().zip(i2.iter()) {
+                    if !t1.unify_params(t2, mapping) {
+                        return false;
+                    }
+                }
+
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn extract_equality(self: &Term) -> Option<(Rc<Term>, Rc<Term>)> {
         if let Term::Application { function, arguments } = &self {
             if let Term::Atom { name } = function.as_ref() {
@@ -869,7 +922,7 @@ pub fn is_parameter_name(name: &str) -> bool {
 pub mod tests {
     #![allow(unused_imports)]
     use std::rc::Rc;
-    use crate::universe::term::{Context, Term, Definition};
+    use crate::universe::term::{Context, Term, Definition, Unifier};
 
     #[test]
     fn build_context() {
@@ -923,5 +976,49 @@ pub mod tests {
         assert!(context.lookup(&"leq_z".to_string()).unwrap().value.is_some());
 
         assert!(context.lookup(&"other".to_string()).is_none());
+    }
+
+    #[test]
+    fn unify() {
+        let t1 = "nat".parse::<Term>().unwrap().rc();
+        let t2 = "real".parse::<Term>().unwrap().rc();
+
+        assert!(!t1.unify_params(&t2, &mut Unifier::new()));
+        assert!(t1.unify_params(&t1, &mut Unifier::new()));
+        assert!(t2.unify_params(&t2, &mut Unifier::new()));
+
+        let t1 = "$b".parse::<Term>().unwrap().rc();
+        let t2 = "(leq 1 2)".parse::<Term>().unwrap().rc();
+        let mut u = Unifier::new();
+        assert!(t1.unify_params(&t2, &mut u));
+        assert_eq!(u.len(), 1);
+        assert_eq!(u.get(&String::from("$b")), Some(&t2));
+
+        let t1 = "(leq $x $y)".parse::<Term>().unwrap().rc();
+        let t2 = "(leq 1 2)".parse::<Term>().unwrap().rc();
+        let mut u = Unifier::new();
+        assert!(t1.unify_params(&t2, &mut u));
+        assert_eq!(u.len(), 2);
+        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("1"));
+        assert_eq!(u.get(&String::from("$y")).unwrap().to_string(), String::from("2"));
+
+        let t1 = "(leq (+ $x $x) $y)".parse::<Term>().unwrap().rc();
+        let t2 = "(leq (+ 1 1) 2)".parse::<Term>().unwrap().rc();
+        let mut u = Unifier::new();
+        assert!(t1.unify_params(&t2, &mut u));
+        assert_eq!(u.len(), 2);
+        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("1"));
+        assert_eq!(u.get(&String::from("$y")).unwrap().to_string(), String::from("2"));
+
+        let t1 = "(leq (+ $x $x) $x)".parse::<Term>().unwrap().rc();
+        let t2 = "(leq (+ 1 1) 2)".parse::<Term>().unwrap().rc();
+        let mut u = Unifier::new();
+        assert!(!t1.unify_params(&t2, &mut u));
+
+        let t1 = "(leq (+ $x $x) $x)".parse::<Term>().unwrap().rc();
+        let t2 = "(leq (+ (* a b) (* a b)) (* a b))".parse::<Term>().unwrap().rc();
+        let mut u = Unifier::new();
+        assert!(t1.unify_params(&t2, &mut u));
+        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("(* a b)"));
     }
 }

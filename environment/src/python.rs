@@ -24,6 +24,7 @@ struct PyDerivation {
 #[pyclass(unsendable)]
 struct PyDefinition {
     pub def: Definition,
+    pub action: String,
 }
 
 #[pyclass(unsendable)]
@@ -55,6 +56,17 @@ impl PyDefinition {
         )
     }
 
+    pub fn generating_action(&self) -> &str {
+        &self.action
+    }
+
+    pub fn dependencies(&self) -> Vec<String> {
+        match &self.def.value {
+            Some(v) => v.free_atoms().iter().map(|v| v.clone()).collect(),
+            None => vec![],
+        }
+    }
+
     pub fn clean_dtype(&self, u: &PyDerivation) -> String {
         self.def.dtype.in_context(&u.universe.context()).to_string()
     }
@@ -76,7 +88,7 @@ impl PyUniverse {
 
     pub fn apply(&self, action: String) -> Vec<PyDefinition> {
         self.universe.application_results(&action)
-            .into_iter().map(|d| PyDefinition { def: d }).collect()
+            .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
     pub fn define(&mut self, name: String, d: &PyDefinition) {
@@ -170,11 +182,26 @@ impl PyDerivation {
 
     pub fn apply(&self, action: String) -> Vec<PyDefinition> {
         self.universe.application_results(&action)
-            .into_iter().map(|d| PyDefinition { def: d }).collect()
+            .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
-    pub fn define(&mut self, name: String, d: &PyDefinition) {
-        self.universe.define(name, d.def.clone(), true);
+    pub fn apply_all_with(&self, param_name: String) -> Vec<PyDefinition> {
+        let mut result = Vec::new();
+        for a in self.universe.actions() {
+            result.extend(
+                self.universe.apply_with(a, &param_name)
+                             .into_iter().map(|d| PyDefinition { def: d, action: a.clone() }));
+        }
+        result
+    }
+
+    pub fn apply_with(&self, action: String, param_name: String) -> Vec<PyDefinition> {
+        self.universe.apply_with(&action, &param_name)
+            .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
+    }
+
+    pub fn define(&mut self, name: String, d: &PyDefinition) -> Vec<String> {
+        self.universe.define(name, d.def.clone(), false)
     }
 
     pub fn is_prop(&self, d: &PyDefinition) -> bool {
@@ -197,7 +224,7 @@ impl PyDerivation {
         }
     }
 
-    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(String, String, Vec<String>)> {
+    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(String, String, bool, Vec<String>)> {
         let mut s = Vec::new();
 
         for name in self.universe.context_.insertion_order.iter() {
@@ -214,7 +241,7 @@ impl PyDerivation {
                 None => vec![],
             };
 
-            s.push((name.clone(), value, dependencies));
+            s.push((name.clone(), value, def.is_prop(&self.universe.context_), dependencies));
         }
 
         s

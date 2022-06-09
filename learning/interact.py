@@ -137,7 +137,7 @@ def run_proof_search(domain):
         domain,
         p,
         utility=lambda val: 1 / len(val) + random.random() * 0.001,
-        batch_size=20,
+        batch_size=10000,
         max_per_type=1
     )
 

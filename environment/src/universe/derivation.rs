@@ -10,7 +10,7 @@ use egg::*;
 use num_rational::Rational64;
 
 use super::universe::Universe;
-use super::term::{Context, Term, Definition, is_parameter_name, VerificationNames};
+use super::term::{Context, Term, Definition, is_parameter_name, VerificationNames, Unifier};
 use super::equivalence::AbstractSExp;
 use super::verifier::{VerificationScript, VerificationError};
 
@@ -25,8 +25,8 @@ const REAL_TYPE_CONST: &str = &"real";
 pub struct Derivation {
     pub context_: Context,
     next_id: usize,
-    inhabited_types: HashSet<Rc<Term>>,
-    existing_values: HashSet<Rc<Term>>,
+    inhabited_types: HashMap<Rc<Term>, Vec<String>>,
+    existing_values: HashMap<Rc<Term>, String>,
 }
 
 // Returns whether the string contains a valid `real` constant.
@@ -41,8 +41,8 @@ impl Derivation {
         Derivation {
             context_: Context::new_with_builtins(&["eval", "rewrite", "eq_symm", "eq_refl"]),
             next_id: 0,
-            inhabited_types: HashSet::new(),
-            existing_values: HashSet::new(),
+            inhabited_types: HashMap::new(),
+            existing_values: HashMap::new(),
         }
     }
 
@@ -58,85 +58,21 @@ impl Derivation {
     fn apply_builtin_eval(&self, new_terms: &mut Vec<Definition>) {
         for eq_name in self.context_.insertion_order.iter() {
             let def = self.context_.lookup(eq_name).unwrap();
-            if let Some(val) = &def.value {
-                if let Term::Application { function, arguments } = val.as_ref() {
-                    if let Term::Atom { name } = &function.as_ref() {
-                        if arguments.len() == 2 && (name == "+" || name == "-" ||
-                                                    name == "/" || name == "*") {
-                            let lhs = arguments[0].to_string().parse();
-                            let rhs = arguments[1].to_string().parse();
-
-                            if let (Ok(n1), Ok(n2)) = (lhs, rhs) {
-                                if let Some(result) = apply_builtin_binary_op(n1, n2, name) {
-                                    let eq_type = Rc::new(Term::Application {
-                                        function: Rc::new(Term::Atom { name: String::from("=") }),
-                                        arguments: vec![
-                                            val.clone(),
-                                            Rc::new(Term::Atom { name: result.to_string() }),
-                                        ]
-                                    });
-
-                                    new_terms.push(Definition {
-                                        dtype: eq_type,
-                                        value: Some(Rc::new(Term::Application {
-                                            function: Rc::new(Term::Atom { name: String::from("eval") }),
-                                            arguments: vec![Rc::new(Term::Atom { name: eq_name.clone() })],
-                                        }))
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            self.apply_builtin_eval_with(&eq_name, def, new_terms);
         }
     }
 
     fn apply_builtin_eq_refl(&self, new_terms: &mut Vec<Definition>) {
         for name in self.context_.insertion_order.iter() {
             let def = self.context_.lookup(name).unwrap();
-
-            if def.is_prop(&self.context_) {
-                continue;
-            }
-
-            let val = match &def.value {
-                Some(v) => v.clone(),
-                None => Rc::new(Term::Atom { name: name.clone() })
-            };
-
-            let eq_type = Rc::new(Term::Application {
-                function: Rc::new(Term::Atom { name: String::from("=") }),
-                arguments: vec![val.clone(), val]
-            });
-
-            new_terms.push(Definition {
-                dtype: eq_type,
-                value: Some(Rc::new(Term::Application {
-                    function: Rc::new(Term::Atom { name: String::from("eq_refl") }),
-                    arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
-                }))
-            });
+            self.apply_builtin_eq_refl_with(name, def, new_terms);
         }
     }
 
     fn apply_builtin_eq_symm(&self, new_terms: &mut Vec<Definition>) {
         for name in self.context_.insertion_order.iter() {
             let def = self.context_.lookup(name).unwrap();
-
-            if let Some((t1, t2)) = def.dtype.extract_equality() {
-                let eq_type = Rc::new(Term::Application {
-                    function: Rc::new(Term::Atom { name: String::from("=") }),
-                    arguments: vec![t2, t1]
-                });
-                new_terms.push(Definition {
-                    dtype: eq_type,
-                    value: Some(Rc::new(Term::Application {
-                        function: Rc::new(Term::Atom { name: String::from("eq_symm") }),
-                        arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
-                    }))
-                });
-            }
+            self.apply_builtin_eq_symm_with(name, def, new_terms);
         }
     }
 
@@ -145,24 +81,12 @@ impl Derivation {
             let def = self.context_.lookup(name).unwrap();
 
             if let Some((t1, t2)) = def.dtype.extract_equality() {
-                for prop_name in self.context_.insertion_order.iter() {
-                    let prop_def = self.context_.lookup(prop_name).unwrap();
+                if t1 != t2 {
+                    for prop_name in self.context_.insertion_order.iter() {
+                        let prop_def = self.context_.lookup(prop_name).unwrap();
 
-                    if prop_def.is_prop(&self.context_) {
-                        for (i, rw) in rewrite_all(&prop_def.dtype, &t1, &t2).into_iter().enumerate() {
-                            new_terms.push(
-                                Definition {
-                                    dtype: rw,
-                                    value: Some(Rc::new(Term::Application {
-                                        function: Rc::new(Term::Atom { name: String::from("rewrite") }),
-                                        arguments: vec![
-                                            Rc::new(Term::Atom { name: name.clone() }),
-                                            Rc::new(Term::Atom { name: prop_name.clone() }),
-                                            Rc::new(Term::Atom { name: i.to_string() }),
-                                        ],
-                                    }))
-                                }
-                            );
+                        if prop_def.is_prop(&self.context_) {
+                            self.rewrite_in(prop_name, &prop_def.dtype, &t1, &t2, name, new_terms);
                         }
                     }
                 }
@@ -174,6 +98,7 @@ impl Derivation {
                                         arrow_object: &Rc<Term>,
                                         input_types: &Vec<Rc<Term>>,
                                         inputs: &mut Vec<Rc<Term>>,
+                                        predetermined: &Vec<Option<&String>>,
                                         results: &mut Vec<Rc<Term>>) {
         let next = inputs.len();
 
@@ -193,7 +118,9 @@ impl Derivation {
             _ => input_types[next].clone(),
         };
 
-        for name in self.context_.insertion_order.iter() {
+        let param = predetermined.get(next).unwrap_or(&None).map(|name| vec![name.clone()]);
+
+        for name in param.as_ref().unwrap_or(&self.context_.insertion_order) {
             let def = self.context_.lookup(&name).unwrap();
 
             // If types exactly match.
@@ -218,6 +145,7 @@ impl Derivation {
                             &arrow_object,
                             &remaining_types,
                             inputs,
+                            predetermined,
                             results,
                         );
                     },
@@ -228,6 +156,7 @@ impl Derivation {
                             &arrow_object,
                             &input_types,
                             inputs,
+                            predetermined,
                             results,
                         );
                     }
@@ -238,37 +167,320 @@ impl Derivation {
         }
     }
 
+    pub fn filter_equalities(&self, eq: Vec<Definition>) -> Vec<Definition> {
+        eq.into_iter().filter(|def| {
+            match def.dtype.extract_equality() {
+                Some((t1, t2)) => self.existing_values.contains_key(&t1),
+                None => true,
+            }
+        }).collect()
+    }
+
+    pub fn apply_with(&self, action: &String, param_name: &String) -> Vec<Definition> {
+        let mut new_terms = Vec::new();
+
+        match (self.context_.lookup(action), self.context_.lookup(param_name)) {
+            (_, None) => { },
+            (None, Some(def)) => {
+                match action.as_str() {
+                    "eval" => { self.apply_builtin_eval_with(param_name, def, &mut new_terms); }
+                    "eq_refl" => { self.apply_builtin_eq_refl_with(param_name, def, &mut new_terms); }
+                    "eq_symm" => { self.apply_builtin_eq_symm_with(param_name, def, &mut new_terms); }
+                    "rewrite" => { self.apply_builtin_rewrite_with(param_name, def, &mut new_terms); }
+                    _ => {}
+                }
+            },
+            (Some(action_def), Some(def)) => {
+                match action_def.dtype.as_ref() {
+                    Term::Arrow { input_types, output_type } => {
+                        match (&def.value.as_ref().map(|t| t.eval(&self.context_)),
+                               output_type.extract_equality()) {
+                            (Some(val), Some((t1, t2))) => {
+                                // Try putting the given value in the output
+                                let mut u = Unifier::new();
+                                if t1.unify_params(val, &mut u) {
+                                    // Set the parameters that were unified.
+                                    let mut fixed_params: Vec<Option<&String>> = Vec::new();
+                                    let mut worked = true;
+
+                                    for (j, t) in input_types.iter().enumerate() {
+                                        if let Term::Declaration { name, dtype } = t.as_ref() {
+                                            if let Some(p_val) = u.get(name) {
+                                                // Find a name for this value. Should not panic since
+                                                // all sub-terms should have been defined.
+                                                // nondeterministically_apply_arrow further checks if
+                                                // this has the type we actually need.
+                                                if let Some(p_name) = self.existing_values.get(p_val) {
+                                                    fixed_params.push(Some(p_name));
+                                                } else {
+                                                    worked = false;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if fixed_params.len() == j {
+                                            fixed_params.push(None);
+                                        }
+                                    }
+
+                                    if worked {
+                                        let mut results = Vec::new();
+                                        self.nondeterministically_apply_arrow(
+                                            &Rc::new(Term::Atom { name: action.clone() }),
+                                            input_types,
+                                            &mut Vec::new(),
+                                            &fixed_params,
+                                            &mut results
+                                        );
+
+                                        for r in results.into_iter() {
+                                            new_terms.push(Definition { dtype: r.get_type(&self.context_),
+                                                                        value: Some(r) });
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                // Try putting the given value in each of the parameter slots.
+                                for (i, input_type) in input_types.iter().enumerate() {
+                                    let mut u = Unifier::new();
+                                    let typechecks = if let Term::Declaration { name, dtype } = input_type.as_ref() {
+                                        dtype.unify_params(&def.dtype, &mut u)
+                                    } else {
+                                        input_type.unify_params(&def.dtype, &mut u)
+                                    };
+
+                                    if !typechecks {
+                                        continue;
+                                    }
+
+                                    // Set the parameters that were unified.
+                                    let mut fixed_params: Vec<Option<&String>> = Vec::new();
+                                    let mut worked = true;
+
+                                    for (j, t) in input_types.iter().enumerate() {
+                                        if i == j {
+                                            fixed_params.push(Some(&param_name));
+                                        } else {
+                                            if let Term::Declaration { name, dtype } = t.as_ref() {
+                                                if let Some(p_val) = u.get(name) {
+                                                    // Find a name for this value. Should not panic since
+                                                    // all sub-terms should have been defined.
+                                                    // nondeterministically_apply_arrow further checks if
+                                                    // this has the type we actually need.
+                                                    if let Some(p_name) = self.existing_values.get(p_val) {
+                                                        fixed_params.push(Some(p_name));
+                                                    } else {
+                                                        worked = false;
+                                                        // println!("Weird: {} not found as value", p_val);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            if fixed_params.len() == j {
+                                                fixed_params.push(None);
+                                            }
+                                        }
+                                    }
+
+                                    if !worked {
+                                        continue;
+                                    }
+
+                                    let mut results = Vec::new();
+                                    self.nondeterministically_apply_arrow(
+                                        &Rc::new(Term::Atom { name: action.clone() }),
+                                        input_types,
+                                        &mut Vec::new(),
+                                        &fixed_params,
+                                        &mut results
+                                    );
+
+                                    for r in results.into_iter() {
+                                        new_terms.push(Definition { dtype: r.get_type(&self.context_),
+                                                                    value: Some(r) });
+                                    }
+                                }
+
+                            }
+                        }
+
+                        new_terms = self.filter_equalities(new_terms);
+                    },
+                    _ => {}
+                }
+            },
+        }
+
+        new_terms
+    }
+
+    fn apply_builtin_eval_with(&self, obj_name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
+        if let Some(val) = &def.value {
+            if let Term::Application { function, arguments } = val.as_ref() {
+                if let Term::Atom { name } = &function.as_ref() {
+                    if arguments.len() == 2 && (name == "+" || name == "-" ||
+                                                name == "/" || name == "*") {
+                        let lhs = arguments[0].to_string().parse();
+                        let rhs = arguments[1].to_string().parse();
+
+                        if let (Ok(n1), Ok(n2)) = (lhs, rhs) {
+                            if let Some(result) = apply_builtin_binary_op(n1, n2, name) {
+                                let eq_type = Rc::new(Term::Application {
+                                    function: Rc::new(Term::Atom { name: String::from("=") }),
+                                    arguments: vec![
+                                        val.clone(),
+                                        Rc::new(Term::Atom { name: result.to_string() }),
+                                    ]
+                                });
+
+                                new_terms.push(Definition {
+                                    dtype: eq_type,
+                                    value: Some(Rc::new(Term::Application {
+                                        function: Rc::new(Term::Atom { name: String::from("eval") }),
+                                        arguments: vec![Rc::new(Term::Atom { name: obj_name.clone() })],
+                                    }))
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_builtin_eq_refl_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
+        if def.is_prop(&self.context_) {
+            return;
+        }
+
+        match def.dtype.as_ref() {
+            Term::Arrow { input_types: _, output_type: _ } => { return; }
+            _ => {}
+        }
+
+        let val = match &def.value {
+            Some(v) => v.clone(),
+            None => Rc::new(Term::Atom { name: name.clone() })
+        };
+
+        let eq_type = Rc::new(Term::Application {
+            function: Rc::new(Term::Atom { name: String::from("=") }),
+            arguments: vec![val.clone(), val]
+        });
+
+        new_terms.push(Definition {
+            dtype: eq_type,
+            value: Some(Rc::new(Term::Application {
+                function: Rc::new(Term::Atom { name: String::from("eq_refl") }),
+                arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
+            }))
+        });
+    }
+
+    fn apply_builtin_eq_symm_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
+        if let Some((t1, t2)) = def.dtype.extract_equality() {
+            if t1 == t2 {
+                return;
+            }
+
+            let eq_type = Rc::new(Term::Application {
+                function: Rc::new(Term::Atom { name: String::from("=") }),
+                arguments: vec![t2, t1]
+            });
+            new_terms.push(Definition {
+                dtype: eq_type,
+                value: Some(Rc::new(Term::Application {
+                    function: Rc::new(Term::Atom { name: String::from("eq_symm") }),
+                    arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
+                }))
+            });
+        }
+    }
+
+    fn apply_builtin_rewrite_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
+        // If def is an equality, try using it to rewrite in other props.
+        if let Some((t1, t2)) = def.dtype.extract_equality() {
+            if t1 != t2 {
+                for prop_name in self.context_.insertion_order.iter() {
+                    let prop_def = self.context_.lookup(prop_name).unwrap();
+                    if prop_def.is_prop(&self.context_) {
+                        self.rewrite_in(&prop_name, &prop_def.dtype, &t1, &t2, name, new_terms);
+                    }
+                }
+            }
+        }
+
+        // If def is a prop, try using other equalities to rewrite it.
+        if def.is_prop(&self.context_) {
+            for eq_name in self.context_.insertion_order.iter() {
+                let eq_def = self.context_.lookup(eq_name).unwrap();
+                if let Some((t1, t2)) = eq_def.dtype.extract_equality() {
+                    if t1 != t2 {
+                        self.rewrite_in(&name, &def.dtype, &t1, &t2, eq_name, new_terms);
+                    }
+                }
+            }
+        }
+    }
+
+    fn rewrite_in(&self,
+                  prop_name: &String,
+                  prop_type: &Rc<Term>,
+                  t1: &Rc<Term>,
+                  t2: &Rc<Term>,
+                  eq_name: &String,
+                  new_terms: &mut Vec<Definition>) {
+        for (i, rw) in rewrite_all(&prop_type, &t1, &t2).into_iter().enumerate() {
+            new_terms.push(
+                Definition {
+                    dtype: rw,
+                    value: Some(Rc::new(Term::Application {
+                        function: Rc::new(Term::Atom { name: String::from("rewrite") }),
+                        arguments: vec![
+                            Rc::new(Term::Atom { name: eq_name.clone() }),
+                            Rc::new(Term::Atom { name: prop_name.clone() }),
+                            Rc::new(Term::Atom { name: i.to_string() }),
+                        ],
+                    }))
+                }
+            );
+        }
+    }
+
     // Returns whether there already exists an object in the context with the same value
     // (or same type, in case the type is a prop, because of proof irrelevance).
     fn is_redundant(&self, dtype: &Rc<Term>, value: &Option<Rc<Term>>) -> bool {
         if dtype.is_prop(&self.context_) {
             // Proof irrelevance - check for anything with this same type.
-            self.inhabited_types.contains(dtype)
+            self.inhabited_types.contains_key(dtype)
         } else {
             match value {
-                Some(val) => self.existing_values.contains(val),
+                Some(val) => self.existing_values.contains_key(val),
                 None => false,
             }
         }
     }
 
-    fn define_subterms(&mut self, t: &Rc<Term>, is_root: bool) {
-        let is_atom = match t.as_ref() {
+    fn define_subterms(&mut self, t: &Rc<Term>, is_root: bool, subterm_names: &mut Vec<String>) {
+        let is_real_atom = match t.as_ref() {
             Term::Atom { name } => {
                 let real_type = Rc::new(Term::Atom { name: String::from(REAL_TYPE_CONST) });
                 if is_real_const(name) && !self.is_redundant(&real_type, &Some(t.clone())) {
+                    self.existing_values.entry(t.clone()).or_insert_with(|| name.clone());
+                    self.inhabited_types.entry(real_type.clone()).or_insert_with(Vec::new).push(name.clone());
                     self.context_.define(name.clone(),
                                          Definition { dtype: real_type,
                                                       value: None });
-                    self.existing_values.insert(t.clone());
+                    // subterm_names.push(name.clone());
                 }
                 true
             },
             Term::Application { function, arguments } => {
-                self.define_subterms(&function, false);
+                self.define_subterms(&function, false, subterm_names);
 
                 for t in arguments.iter() {
-                    self.define_subterms(&t, false);
+                    self.define_subterms(&t, false, subterm_names);
                 }
 
                 false
@@ -276,17 +488,23 @@ impl Derivation {
             _ => false,
         };
 
-        if !is_root && !is_atom && !self.existing_values.contains(t) {
+        if !is_root && !is_real_atom && !self.existing_values.contains_key(t) {
             let dname = format!("!sub{}", self.next_term_id());
-            self.context_.define(dname,
-                                 Definition { dtype: t.get_type(&self.context_),
+            let dtype = t.get_type(&self.context_);
+
+            self.existing_values.insert(t.clone(), dname.clone());
+            self.inhabited_types.entry(dtype.clone()).or_insert_with(Vec::new).push(dname.clone());
+
+            self.context_.define(dname.clone(),
+                                 Definition { dtype,
                                               value: Some(t.clone()) });
+            subterm_names.push(dname);
         }
     }
 }
 
 impl Universe for Derivation {
-    fn define(&mut self, name: String, def: Definition, rename: bool) {
+    fn define(&mut self, name: String, def: Definition, rename: bool) -> Vec<String> {
         let name = if rename {
             format!("{}{}", name, self.next_term_id())
         } else {
@@ -300,15 +518,21 @@ impl Universe for Derivation {
             });
         }
 
-        self.define_subterms(&def.dtype, true);
+        let mut subterm_names = vec![];
+
+        self.define_subterms(&def.dtype, false, &mut subterm_names);
 
         if let Some(value) = &def.value {
-            self.define_subterms(&value, true);
-            self.existing_values.insert(value.clone());
+            self.define_subterms(&value, true, &mut subterm_names);
+            self.existing_values.entry(value.clone()).or_insert_with(|| name.clone());
         }
 
-        self.inhabited_types.insert(def.dtype.clone());
+        self.existing_values.entry(Term::Atom { name: name.clone() }.rc()).or_insert_with(|| name.clone());
+        self.inhabited_types.entry(def.dtype.clone()).or_insert_with(Vec::new).push(name.clone());
+
         self.context_.define(name, def);
+
+        subterm_names
     }
 
     fn rebuild(&mut self) {}
@@ -380,6 +604,7 @@ impl Universe for Derivation {
                             &Rc::new(Term::Atom { name: action.clone() }),
                             input_types,
                             &mut Vec::new(),
+                            &vec![],
                             &mut results
                         );
 
@@ -387,6 +612,8 @@ impl Universe for Derivation {
                             new_terms.push(Definition { dtype: r.get_type(&self.context_),
                                                         value: Some(r) });
                         }
+
+                        new_terms = self.filter_equalities(new_terms)
                     },
                     _ => {}
                 }

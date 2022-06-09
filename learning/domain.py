@@ -127,15 +127,17 @@ x : real.
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to an equality between x and a rational constant.'
-        for name, val, _deps in universe.state():
+        for name, val, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
             try:
-                m = re.match(r'\(= x (.*)\)', val)
+                m = re.match(r'^\(= x (.*)\)$', val)
                 if m:
                     Fraction(m.group(1))
-                    return True
+                    return name
             except ValueError:
                 pass
-        return False
+        return None
 
     def state(self, universe) -> str:
         return '; '.join(f'{{{"=".join(set(vals))}}} : {dtype}'

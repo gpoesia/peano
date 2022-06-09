@@ -33,7 +33,7 @@ pub trait Universe {
         self.context().get_prop_constant()
     }
 
-    fn define(&mut self, name: String, def: Definition, rename: bool);
+    fn define(&mut self, name: String, def: Definition, rename: bool) -> Vec<String>;
 
     fn incorporate(&mut self, context: &Context) {
         for name in context.insertion_order.iter() {
@@ -420,7 +420,7 @@ impl Universe for EGraphUniverse {
         &mut self.context_
     }
 
-    fn define(&mut self, name: String, def: Definition, rename: bool) {
+    fn define(&mut self, name: String, def: Definition, rename: bool) -> Vec<String> {
         let name = if rename {
             format!("{}{}", name, self.next_term_id())
         } else {
@@ -446,6 +446,8 @@ impl Universe for EGraphUniverse {
                 }
             }
         }
+
+        vec![]
     }
 
     // Rebuilds the e-graph and removes duplicate definitions from the context (named objects with values
