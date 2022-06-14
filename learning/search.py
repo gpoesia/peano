@@ -11,6 +11,8 @@ from tqdm import tqdm
 
 from domain import EquationsDomain, make_domain
 
+MAX_NEGATIVES = 10000
+
 
 class SearchHeuristic:
     'Implements the core components of a search heuristic for proof search.'
@@ -141,7 +143,9 @@ def batched_forward_search(domain, problem, group_fn, utility, batch_size, max_b
 
     goal = domain.derivation_done(problem.universe)
 
-    discovered_negatives = [neg for _, vals in pqs.items() for neg in vals]
+    discovered_negatives = [neg.value for _, vals in pqs.items() for neg in vals]
+    discovered_negatives = random.sample(discovered_negatives,
+                                         k=min(len(discovered_negatives), MAX_NEGATIVES))
 
     if goal:
         solution_defs = recover_solution(steps, goal, order)
