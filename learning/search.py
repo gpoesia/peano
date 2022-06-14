@@ -12,6 +12,18 @@ from tqdm import tqdm
 from domain import EquationsDomain, make_domain
 
 
+class SearchHeuristic:
+    'Implements the core components of a search heuristic for proof search.'
+
+    def group(self, definition, depth) -> str:
+        'Returns an arbitrary identifier to group this definition\'s priority.'
+        raise NotImplementedError()
+
+    def utility(self, problem, definitions, values) -> list[float]:
+        'Estimates the utility of each definition in solving the problem.'
+        raise NotImplementedError()
+
+
 @dataclass(order=True)
 class PrioritizedDefinition:
     utility: float

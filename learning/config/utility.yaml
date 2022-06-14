@@ -1,0 +1,11 @@
+task: pretrain
+utility:
+    gru:
+        embedding_size: 64
+        hidden_size: 256
+        layers: 2
+    n_epochs: 20
+    batch_size: 128
+
+job:
+    wandb_project: peano
