@@ -6,6 +6,7 @@ import logging
 import hydra
 import pickle
 from dataclasses import dataclass
+import numpy as np
 
 import torch
 import wandb
@@ -14,11 +15,23 @@ from tqdm import tqdm
 from omegaconf import DictConfig
 
 from policy import encode_batch
-from search import ProofSearchEpisode
 from main import setup_wandb
 
 
 logger = logging.getLogger(__name__)
+
+
+class SearchHeuristic:
+    'Implements the core components of a search heuristic for proof search.'
+
+    def group(self, definition, depth) -> str:
+        'Returns an arbitrary identifier to group this definition\'s priority.'
+        raise NotImplementedError()
+
+    def utility(self, problem, values) -> list[float]:
+        'Estimates the utility of each definition in solving the problem.'
+        raise NotImplementedError()
+
 
 
 @dataclass
@@ -65,19 +78,26 @@ class GRUUtilityFunction(nn.Module):
 
     def utility(self, problem, values) -> torch.Tensor:
         problems = [problem] * len(values)
-        return self(problems, values)
+
+        if self.training:
+            return self(problems, values)
+
+        with torch.no_grad():
+            return self(problems, values).cpu().tolist()
 
     def forward(self, problems, objects):
         strs = [f'{p} => {o}' for p, o in zip(problems, objects)]
         embeddings = self.embed_raw(strs)
-        return self.utility_readout(embeddings)
+        return self.utility_readout(embeddings).squeeze(-1)
 
     def nce_loss(self, problem, positive, negatives):
         all_examples = [positive] + negatives
         logits = self.utility(problem, all_examples).exp()
         return -(logits[0] / logits.sum()).log()
 
-    def fit(self, dataset: list[ProofSearchEpisode], checkpoint_callback=lambda: None):
+    def fit(self, dataset: list['ProofSearchEpisode'], checkpoint_callback=lambda: None):
+        self.train()
+
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
 
         for e in range(self.config.n_epochs):
@@ -108,6 +128,46 @@ class GRUUtilityFunction(nn.Module):
             checkpoint_callback()
 
 
+class LengthUtilityFunction:
+    def __init__(self):
+        pass
+
+    def group(self, definition, depth):
+        return f'({definition.generating_action()}, {depth})'
+
+    def utility(self, problem, values):
+        return [-len(val) for val in values]
+
+
+class TwoStageUtilityFunction:
+    def __init__(self, fn_fast, fn_slow, k, large_negative_utility=-10**9):
+        self.fn_fast = fn_fast
+        self.fn_slow = fn_slow
+        self.k = k
+        self.large_negative_utility = large_negative_utility
+
+    def group(self, definition, depth):
+        return self.fn_fast.group(definition, depth)
+
+    def utility(self, problem, values):
+        if len(values) <= self.k:
+            return self.fn_slow(problem, values)
+
+        u_fast = self.fn_fast.utility(problem, values)
+
+        top_k = np.argsort(u_fast)[-self.k:]
+        top_k_values = [values[i] for i in top_k]
+        top_k_indices = {}
+
+        for i, idx in enumerate(top_k):
+            top_k_indices[idx] = i
+
+        u_slow = self.fn_slow.utility(problem, top_k_values)
+        u_slow.append(self.large_negative_utility)
+
+        return [u_slow[top_k_indices.get(i, -1)] for i in range(len(values))]
+
+
 def pretrain_utility_function(config: DictConfig):
     with open(config.dataset, 'rb') as f:
         dataset = pickle.load(f)
@@ -127,7 +187,7 @@ def pretrain_utility_function(config: DictConfig):
     u.fit(dataset, checkpoint)
 
 
-@hydra.main(config_path="config", config_name="utility")
+@hydra.main(version_base="1.2", config_path="config", config_name="utility")
 def main(cfg: DictConfig):
     setup_wandb(cfg)
 

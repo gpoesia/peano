@@ -9,21 +9,11 @@ from typing import Any
 
 from tqdm import tqdm
 
-from domain import EquationsDomain, make_domain
+from domain import Domain, Problem, make_domain
+from utility import SearchHeuristic, GRUUtilityFunction, TwoStageUtilityFunction, LengthUtilityFunction
+import torch
 
 MAX_NEGATIVES = 10000
-
-
-class SearchHeuristic:
-    'Implements the core components of a search heuristic for proof search.'
-
-    def group(self, definition, depth) -> str:
-        'Returns an arbitrary identifier to group this definition\'s priority.'
-        raise NotImplementedError()
-
-    def utility(self, problem, definitions, values) -> list[float]:
-        'Estimates the utility of each definition in solving the problem.'
-        raise NotImplementedError()
 
 
 @dataclass(order=True)
@@ -77,7 +67,11 @@ def recover_solution(steps, goal, order):
     return solution
 
 
-def batched_forward_search(domain, problem, group_fn, utility, batch_size, max_batches=100, max_per_type=3):
+def batched_forward_search(domain: Domain,
+                           problem: Problem,
+                           heuristic: SearchHeuristic,
+                           batch_size: int,
+                           max_batches: int=100):
     seen_vals = set()
     pqs = collections.defaultdict(list)
     cnts = collections.defaultdict(int)
@@ -94,15 +88,11 @@ def batched_forward_search(domain, problem, group_fn, utility, batch_size, max_b
             val = problem.universe.value_of(o)
             if val not in seen_vals:
                 seen_vals.add(val)
-                pd = PrioritizedDefinition(-utility(val, 0),
+                pd = PrioritizedDefinition(-heuristic.utility(problem.description, [val])[0],
                                            value=val,
                                            definition=o,
                                            depth=0)
-                heapq.heappush(pqs[group_fn(o.generating_action(), 0)], pd)
-
-    # print('Initial batch', len(seen_vals))
-    # for k, v in pqs.items():
-    #    print('By', k, ':', v)
+                heapq.heappush(pqs[heuristic.group(o, 0)], pd)
 
     visited_negatives = set()
 
@@ -129,17 +119,26 @@ def batched_forward_search(domain, problem, group_fn, utility, batch_size, max_b
                     for dname in [name] + sub_defs
                     for d in problem.universe.apply_all_with(dname)]
 
+        unseen_vals, unseen_defs = [], []
+
         for d in new_defs:
             val = problem.universe.value_of(d)
 
             if val not in seen_vals:
-                seen_vals.add(val)
+                unseen_defs.append(d)
+                unseen_vals.append(val)
+
+        if unseen_vals:
+            utilities = heuristic.utility(problem.description, unseen_vals)
+
+            for v, d, u in zip(unseen_vals, unseen_defs, utilities):
                 next_depth = max([0] + [depth[parent] + 1 for parent in d.dependencies()])
-                pd = PrioritizedDefinition(-utility(val, next_depth),
-                                           value=val,
+                seen_vals.add(val)
+                pd = PrioritizedDefinition(-u,
+                                           value=v,
                                            definition=d,
                                            depth=next_depth)
-                heapq.heappush(pqs[group_fn(d.generating_action(), next_depth)], pd)
+                heapq.heappush(pqs[heuristic.group(d, next_depth)], pd)
 
     goal = domain.derivation_done(problem.universe)
 
@@ -196,7 +195,6 @@ def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=40
             group_fn,
             utility=lambda val, depth: (depth_weight * depth - len(val)),
             batch_size=max_depth,
-            max_per_type=1
         )
 
         successes.append(episode.success)
@@ -208,8 +206,9 @@ def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=40
     print('    Mean/Max', f'{sum(nodes) // len(problems):4} / {max(nodes):4}')
 
 
-def run_search_on_batch(domain, seeds, utility_fn, group_fn, max_depth, output_path):
+def run_search_on_batch(domain, seeds, heuristic, max_depth, output_path):
     episodes = []
+    successes = 0
     steps = 0
 
     for seed in tqdm(seeds):
@@ -217,12 +216,13 @@ def run_search_on_batch(domain, seeds, utility_fn, group_fn, max_depth, output_p
         episode = batched_forward_search(
             domain,
             problem,
-            group_fn,
-            utility=utility_fn,
+            heuristic,
             batch_size=max_depth,
         )
+
         if episode.success:
             print('Solved', episode.problem)
+            successes += 1
 
         episodes.append(episode)
 
@@ -233,20 +233,38 @@ def run_search_on_batch(domain, seeds, utility_fn, group_fn, max_depth, output_p
 
     with open(output_path, 'wb') as f:
         pickle.dump(episodes, f)
-    print('Wrote', output_path)
+
+    print(f'Solved {successes}/{len(seeds)}, wrote {output_path}')
 
 
 def run_bootstrap_step(domain, seeds, output_path):
     run_search_on_batch(domain,
                         seeds,
-                        lambda val, _depth: -len(val),
-                        lambda action, depth: (action, depth),
+                        LengthUtilityFunction(),
+                        400,
+                        output_path)
+
+def run_trained_utility_function(domain, seeds, model_path, device, output_path):
+    m = torch.load(model_path, map_location=device)
+    m.to(device)
+    m.eval()
+
+    h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=200)
+
+    run_search_on_batch(domain,
+                        seeds,
+                        h,
                         400,
                         output_path)
 
 
 if __name__ == '__main__':
-    run_bootstrap_step(make_domain('equations'), range(10000), 'bootstrap_episodes.pkl')
+    # run_bootstrap_step(make_domain('equations'), range(10000), 'bootstrap_episodes.pkl')
+    run_trained_utility_function(make_domain('equations'),
+                                 range(1),
+                                 '1.pt',
+                                 torch.device('cpu'),
+                                 'episodes-it1.pkl')
     # test_search_heuristic_hyperparams('Bare', lambda action, depth: '', 0)
     # test_search_heuristic_hyperparams('Group by action', lambda action, depth: action, 0)
     # test_search_heuristic_hyperparams('Group by action + depth', lambda action, depth: (action, depth), 0)
