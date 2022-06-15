@@ -6,6 +6,7 @@ utility:
         layers: 2
     n_epochs: 20
     batch_size: 128
+    lr: 0.00005
 
 job:
     wandb_project: peano
