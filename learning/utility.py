@@ -78,9 +78,10 @@ class GRUUtilityFunction(nn.Module):
         return -(logits[0] / logits.sum()).log()
 
     def fit(self, dataset: list[ProofSearchEpisode], checkpoint_callback=lambda: None):
-        optimizer = torch.optim.Adam(self.parameters())
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
 
         for e in range(self.config.n_epochs):
+            wandb.log({'epoch': e})
             print('Epoch', e + 1)
             examples = []
 
@@ -102,8 +103,9 @@ class GRUUtilityFunction(nn.Module):
                 loss.backward()
                 optimizer.step()
 
-                wandb.log({'epoch': e, 'train_loss': loss})
-                logger.debug('{"train_loss": %f}', loss)
+                wandb.log({'train_loss': loss.cpu()})
+
+            checkpoint_callback()
 
 
 def pretrain_utility_function(config: DictConfig):
@@ -111,6 +113,9 @@ def pretrain_utility_function(config: DictConfig):
         dataset = pickle.load(f)
 
     u = GRUUtilityFunction(config.utility)
+
+    if config.get('gpu') is not None:
+        u = u.to(torch.device(config.gpu))
 
     i = 0
 
@@ -122,7 +127,7 @@ def pretrain_utility_function(config: DictConfig):
     u.fit(dataset, checkpoint)
 
 
-@hydra.main(version_base="1.2", config_path="config", config_name="utility")
+@hydra.main(config_path="config", config_name="utility")
 def main(cfg: DictConfig):
     setup_wandb(cfg)
 
