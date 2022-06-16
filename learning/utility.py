@@ -187,12 +187,30 @@ def pretrain_utility_function(config: DictConfig):
     u.fit(dataset, checkpoint)
 
 
+def debug_utility_function(config: DictConfig):
+    m = torch.load(config.model_path)
+    m.eval()
+
+    for p, v, e in [
+        ('(= (+ x 0) 3)', '(= (+ x 0) x)', 'high'),
+        ('(= (+ x 0) 3)', '(= (+ x 0) (+ 0 x))', 'low'),
+        ('(= (+ 0 x) 3)', '(= (+ x 0) (+ 0 x))', 'high'),
+        ('(= (+ 0 x) 3)', '(+ x x)', 'low'),
+    ]:
+        print(p, v, m.utility(p, [v]), f'(should be {e})')
+
+    if config.breakpoint:
+        breakpoint()
+        print('Model is in `m`')
+
+
 @hydra.main(version_base="1.2", config_path="config", config_name="utility")
 def main(cfg: DictConfig):
-    setup_wandb(cfg)
-
     if cfg.task == 'pretrain':
+        setup_wandb(cfg)
         pretrain_utility_function(cfg)
+    elif cfg.task == 'debug':
+        debug_utility_function(cfg)
     else:
         raise ValueError(f'Unknown command {cfg.task}')
 

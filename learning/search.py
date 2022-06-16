@@ -135,7 +135,7 @@ def batched_forward_search(domain: Domain,
 
             for v, d, u in zip(unseen_vals, unseen_defs, utilities):
                 next_depth = max([0] + [depth[parent] + 1 for parent in d.dependencies()])
-                seen_vals.add(val)
+                seen_vals.add(v)
                 pd = PrioritizedDefinition(-u,
                                            value=v,
                                            definition=d,

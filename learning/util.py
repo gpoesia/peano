@@ -115,3 +115,9 @@ def randomly_mask_goal_terms(goal: str, probability=0.1) -> str:
     sexp, _ = parse_sexp(goal)
     sexp = randomly_mask_atoms(sexp, probability)
     return format_sexp(sexp)
+
+
+def get_device(cfg):
+    if cfg.get('gpu') is not None:
+        return torch.device(cfg.gpu)
+    return torch.device('cpu')
