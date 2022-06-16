@@ -6,14 +6,24 @@ import collections
 from dataclasses import dataclass, field
 import pickle
 from typing import Any
+import logging
 
 from tqdm import tqdm
+import hydra
+from omegaconf import DictConfig
+from hydra.utils import to_absolute_path
 
 from domain import Domain, Problem, make_domain
 from utility import SearchHeuristic, GRUUtilityFunction, TwoStageUtilityFunction, LengthUtilityFunction
+from episode import ProofSearchEpisode
+from util import get_device
+
 import torch
 
 MAX_NEGATIVES = 10000
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(order=True)
@@ -22,17 +32,6 @@ class PrioritizedDefinition:
     value: str = field(compare=False)
     definition: Any = field(compare=False)
     depth: int = field(compare=False)
-
-@dataclass
-class ProofSearchEpisode:
-    success: bool
-    iterations: int
-    steps_added: int
-    steps_created: int
-    problem: str
-    solution: list[str]
-    visited_negatives: list[str]
-    discovered_negatives: list[str]
 
 
 def print_solution(steps, derivation):
@@ -92,6 +91,7 @@ def batched_forward_search(domain: Domain,
                                            value=val,
                                            definition=o,
                                            depth=0)
+                logger.debug('[%s] Utility of %s: %f', pd.definition.generating_action(), val, -pd.utility)
                 heapq.heappush(pqs[heuristic.group(o, 0)], pd)
 
     visited_negatives = set()
@@ -107,6 +107,8 @@ def batched_forward_search(domain: Domain,
 
         k, pq = random.choices(nonempty_pqs, weights=[1 / (1 + cnts[k]) for k, _ in nonempty_pqs])[0]
         d = heapq.heappop(pq)
+        logger.debug('Adding %s from queue %s, utility %f', d.definition, k, -d.utility)
+
         name = f'!step{idx}'
         idx += 1
         sub_defs = problem.universe.define(name, d.definition)
@@ -206,13 +208,19 @@ def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=40
     print('    Mean/Max', f'{sum(nodes) // len(problems):4} / {max(nodes):4}')
 
 
-def run_search_on_batch(domain, seeds, heuristic, max_depth, output_path):
+def run_search_on_batch(domain, seeds, heuristic, max_depth, output_path, debug):
     episodes = []
     successes = 0
     steps = 0
 
     for seed in tqdm(seeds):
         problem = domain.generate_derivation(seed)
+
+        if debug:
+            if input(f'Problem #{seed}: {problem.description} - skip? (y/n)') == 'y':
+                continue
+            breakpoint()
+
         episode = batched_forward_search(
             domain,
             problem,
@@ -237,36 +245,47 @@ def run_search_on_batch(domain, seeds, heuristic, max_depth, output_path):
     print(f'Solved {successes}/{len(seeds)}, wrote {output_path}')
 
 
-def run_bootstrap_step(domain, seeds, output_path):
+def run_bootstrap_step(domain, seeds, output_path, debug):
     run_search_on_batch(domain,
                         seeds,
                         LengthUtilityFunction(),
                         400,
-                        output_path)
+                        output_path,
+                        debug)
 
-def run_trained_utility_function(domain, seeds, model_path, device, output_path):
+
+def run_trained_utility_function(domain, seeds, model_path, device, output_path, debug):
     m = torch.load(model_path, map_location=device)
     m.to(device)
     m.eval()
 
-    h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=200)
+    h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=500)
 
     run_search_on_batch(domain,
                         seeds,
                         h,
                         400,
-                        output_path)
+                        output_path,
+                        debug)
+
+
+@hydra.main(version_base="1.2", config_path="config", config_name="search")
+def main(cfg: DictConfig):
+    if cfg.task == 'bootstrap':
+        run_bootstrap_step(make_domain(cfg.domain),
+                           range(cfg.range[0], cfg.range[1]),
+                           to_absolute_path(cfg.output),
+                           cfg.get('debug'))
+    elif cfg.task == 'solve':
+        run_trained_utility_function(make_domain(cfg.domain),
+                                     range(cfg.range[0], cfg.range[1]),
+                                     to_absolute_path(cfg.model_path),
+                                     get_device(cfg),
+                                     to_absolute_path(cfg.output),
+                                     cfg.get('debug'))
+    else:
+        raise ValueError(f'Unknown command {cfg.task}')
 
 
 if __name__ == '__main__':
-    # run_bootstrap_step(make_domain('equations'), range(10000), 'bootstrap_episodes.pkl')
-    run_trained_utility_function(make_domain('equations'),
-                                 range(1),
-                                 '1.pt',
-                                 torch.device('cpu'),
-                                 'episodes-it1.pkl')
-    # test_search_heuristic_hyperparams('Bare', lambda action, depth: '', 0)
-    # test_search_heuristic_hyperparams('Group by action', lambda action, depth: action, 0)
-    # test_search_heuristic_hyperparams('Group by action + depth', lambda action, depth: (action, depth), 0)
-    # test_search_heuristic_hyperparams('Group by action, beta=1', lambda action, depth: action, 1)
-    # test_search_heuristic_hyperparams('Group by action, beta=2', lambda action, depth: action, 2)
+    main()
