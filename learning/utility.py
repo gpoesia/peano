@@ -14,6 +14,7 @@ from torch import nn
 from tqdm import tqdm
 from omegaconf import DictConfig
 
+from episode import ProofSearchEpisode
 from policy import encode_batch
 from main import setup_wandb
 
@@ -56,8 +57,13 @@ class GRUUtilityFunction(nn.Module):
             nn.Linear(config.gru.hidden_size, 1)
         )
 
+        self.bilinear_comb = nn.Linear(2*config.gru.hidden_size,
+                                       2*config.gru.hidden_size)
+
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         self.max_len = 300
+        self.interaction = config.interaction
+        self.normalize = config.normalize
         self.config = config
 
     def get_device(self):
@@ -67,14 +73,22 @@ class GRUUtilityFunction(nn.Module):
         strs = [s[:self.max_len] for s in strs]
         lens = [len(s) + 2 for s in strs]
         X = encode_batch(strs, self.get_device(), bos=True, eos=True)
-        embeddings = self.embedding(X.transpose(0, 1))
-        seq = torch.nn.utils.rnn.pack_padded_sequence(embeddings, lens, enforce_sorted=False)
+        char_embeddings = self.embedding(X.transpose(0, 1))
+        seq = torch.nn.utils.rnn.pack_padded_sequence(
+                char_embeddings, lens, enforce_sorted=False)
         seq_out, _ = self.lm(seq)
         h_n, _ = torch.nn.utils.rnn.pad_packed_sequence(seq_out)
-        return h_n[0, :, :]
+
+        embeddings = h_n[0, :, :]
+
+        if self.normalize:
+            embeddings = embeddings / (embeddings**2).sum(dim=1).sqrt().unsqueeze(1)
+
+        return embeddings
 
     def group(self, definition, depth) -> str:
-        return f'({definition.generating_action()}, {depth})'
+        return f'{depth}'
+        # return f'({definition.generating_action()}, {depth})'
 
     def utility(self, problem, values) -> torch.Tensor:
         problems = [problem] * len(values)
@@ -86,16 +100,24 @@ class GRUUtilityFunction(nn.Module):
             return self(problems, values).cpu().tolist()
 
     def forward(self, problems, objects):
-        strs = [f'{p} => {o}' for p, o in zip(problems, objects)]
-        embeddings = self.embed_raw(strs)
-        return self.utility_readout(embeddings).squeeze(-1)
+        if self.interaction == 'concat':
+            strs = [f'{p} => {o}' for p, o in zip(problems, objects)]
+            embeddings = self.embed_raw(strs)
+            return self.utility_readout(embeddings).squeeze(-1)
+
+        elif self.interaction == 'dot-product':
+            p_emb = self.bilinear_comb(self.embed_raw(problems))
+            o_emb = self.embed_raw(objects)
+            return (p_emb * o_emb).sum(dim=1)
+
+        raise ValueError(f'Unknown interaction function {self.interaction}')
 
     def nce_loss(self, problem, positive, negatives):
         all_examples = [positive] + negatives
         logits = self.utility(problem, all_examples).exp()
         return -(logits[0] / logits.sum()).log()
 
-    def fit(self, dataset: list['ProofSearchEpisode'], checkpoint_callback=lambda: None):
+    def fit(self, dataset: list[ProofSearchEpisode], checkpoint_callback=lambda: None):
         self.train()
 
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr)
@@ -147,11 +169,11 @@ class TwoStageUtilityFunction:
         self.large_negative_utility = large_negative_utility
 
     def group(self, definition, depth):
-        return self.fn_fast.group(definition, depth)
+        return self.fn_slow.group(definition, depth)
 
     def utility(self, problem, values):
         if len(values) <= self.k:
-            return self.fn_slow(problem, values)
+            return self.fn_slow.utility(problem, values)
 
         u_fast = self.fn_fast.utility(problem, values)
 
