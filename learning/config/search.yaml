@@ -1,0 +1,3 @@
+domain: equations
+range: [0, 200]
+output: episodes.pkl

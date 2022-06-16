@@ -7,6 +7,11 @@ utility:
     n_epochs: 20
     batch_size: 128
     lr: 0.00005
+    interaction: dot-product
+    normalize: true
 
 job:
     wandb_project: peano
+hydra:
+    job:
+        chdir: true
