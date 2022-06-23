@@ -124,7 +124,6 @@ class GRUUtilityFunction(nn.Module):
 
         for e in range(self.config.n_epochs):
             wandb.log({'epoch': e})
-            print('Epoch', e + 1)
             examples = []
 
             # Assemble contrastive examples
@@ -160,6 +159,9 @@ class LengthUtilityFunction:
     def utility(self, problem, values):
         return [-len(val) for val in values]
 
+    def to(self, _device):
+        return self
+
 
 class TwoStageUtilityFunction:
     def __init__(self, fn_fast, fn_slow, k, large_negative_utility=-10**9):
@@ -167,6 +169,12 @@ class TwoStageUtilityFunction:
         self.fn_slow = fn_slow
         self.k = k
         self.large_negative_utility = large_negative_utility
+
+    def to(self, device):
+        return TwoStageUtilityFunction(self.fn_fast.to(device),
+                                       self.fn_slow.to(device),
+                                       self.k,
+                                       self.large_negative_utility)
 
     def group(self, definition, depth):
         return self.fn_slow.group(definition, depth)

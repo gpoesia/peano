@@ -208,78 +208,99 @@ def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=40
     print('    Mean/Max', f'{sum(nodes) // len(problems):4} / {max(nodes):4}')
 
 
-def run_search_on_batch(domain, seeds, heuristic, max_depth, output_path, debug):
-    episodes = []
-    successes = 0
-    steps = 0
+@dataclass
+class SearcherResults:
+    episodes: list[ProofSearchEpisode]
 
-    for seed in tqdm(seeds):
-        problem = domain.generate_derivation(seed)
+    def successes(self):
+        return sum(1 for e in self.episodes if e.success)
 
-        if debug:
-            if input(f'Problem #{seed}: {problem.description} - skip? (y/n)') == 'y':
-                continue
-            breakpoint()
-
-        episode = batched_forward_search(
-            domain,
-            problem,
-            heuristic,
-            batch_size=max_depth,
-        )
-
-        if episode.success:
-            print('Solved', episode.problem)
-            successes += 1
-
-        episodes.append(episode)
-
-        steps += 1
-        if steps % 100 == 0:
-            with open(output_path, 'wb') as f:
-                pickle.dump(episodes, f)
-
-    with open(output_path, 'wb') as f:
-        pickle.dump(episodes, f)
-
-    print(f'Solved {successes}/{len(seeds)}, wrote {output_path}')
+    def success_rate(self):
+        return self.successes() / len(self.episodes)
 
 
-def run_bootstrap_step(domain, seeds, output_path, debug):
-    run_search_on_batch(domain,
-                        seeds,
-                        LengthUtilityFunction(),
-                        400,
-                        output_path,
-                        debug)
+class SearcherAgent:
+    '''Agent that runs proof search on batches of problems.
+
+    When we have a distributed setup, this will run in parallel finding
+    solutions to problems, and occasionally receiving an updated trained model
+    from the a TrainerAgent.
+    '''
+
+    def __init__(self, domain, utility_fn, max_depth, debug=False):
+        self.domain = domain
+        self.utility_fn = utility_fn
+        self.max_depth = max_depth
+        self.debug = debug
+
+    def run_batch(self, seeds) -> SearcherResults:
+        episodes = []
+        successes = 0
+
+        for seed in tqdm(seeds):
+            problem = self.domain.generate_derivation(seed)
+
+            if self.debug:
+                if input(f'Problem #{seed}: {problem.description} - skip? (y/n)') == 'y':
+                    continue
+                breakpoint()
+
+            with torch.no_grad():
+                episode = batched_forward_search(
+                    self.domain,
+                    problem,
+                    self.utility_fn,
+                    batch_size=self.max_depth,
+                )
+
+            if episode.success:
+                logger.info('Solved %s', episode.problem)
+                successes += 1
+
+            episodes.append(episode)
+
+        return SearcherResults(episodes)
 
 
-def run_trained_utility_function(domain, seeds, model_path, device, output_path, debug):
-    m = torch.load(model_path, map_location=device)
-    m.to(device)
-    m.eval()
+def run_search_on_batch(domain, seeds, utility_fn, max_depth, output_path, debug):
+    searcher = SearcherAgent(domain, utility_fn, max_depth, debug)
 
-    h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=500)
+    result = searcher.run_batch(seeds)
+    print(f'Solved {result.successes()}/{len(seeds)}')
 
-    run_search_on_batch(domain,
+    if output_path is not None:
+        with open(output_path, 'wb') as f:
+            pickle.dump(result.episodes, f)
+        print('Wrote', output_path)
+
+    return result
+
+
+def run_trained_utility_function(domain, seeds, model_path, device, output_path,
+                                 debug, max_depth=400, rerank_top_k=500):
+    if model_path is not None:
+        m = torch.load(model_path, map_location=device)
+        m.to(device)
+        m.eval()
+
+        h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=rerank_top_k)
+    else:
+        h = LengthUtilityFunction()
+
+    return run_search_on_batch(domain,
                         seeds,
                         h,
-                        400,
+                        max_depth,
                         output_path,
                         debug)
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="search")
 def main(cfg: DictConfig):
-    if cfg.task == 'bootstrap':
-        run_bootstrap_step(make_domain(cfg.domain),
-                           range(cfg.range[0], cfg.range[1]),
-                           to_absolute_path(cfg.output),
-                           cfg.get('debug'))
-    elif cfg.task == 'solve':
+    if cfg.task == 'solve':
         run_trained_utility_function(make_domain(cfg.domain),
                                      range(cfg.range[0], cfg.range[1]),
-                                     to_absolute_path(cfg.model_path),
+                                     to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
                                      get_device(cfg),
                                      to_absolute_path(cfg.output),
                                      cfg.get('debug'))

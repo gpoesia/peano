@@ -118,6 +118,13 @@ def randomly_mask_goal_terms(goal: str, probability=0.1) -> str:
 
 
 def get_device(cfg):
+    if cfg is None:
+        return torch.device('cpu')
+
+    if isinstance(cfg, int):
+        return torch.device(cfg)
+
     if cfg.get('gpu') is not None:
         return torch.device(cfg.gpu)
+
     return torch.device('cpu')

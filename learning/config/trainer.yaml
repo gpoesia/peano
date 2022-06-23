@@ -1,0 +1,30 @@
+task: train
+
+train_interval: [0, 1000000]
+eval_interval: [10000000, 10000500]
+
+trainer:
+    domain: equations
+    iterations: 10
+    batch_size: 2000
+    n_searchers: 5
+    max_depth: 200
+    rerank_top_k: 500
+
+    utility:
+        gru:
+            embedding_size: 64
+            hidden_size: 256
+            layers: 2
+        n_epochs: 20
+        batch_size: 256
+        lr: 0.00005
+        interaction: dot-product
+        normalize: true
+
+job:
+    wandb_project: peano
+
+hydra:
+    job:
+        chdir: true
