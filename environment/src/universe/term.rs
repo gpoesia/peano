@@ -23,7 +23,7 @@ const PROP: &str = "prop";
 
 // Prefix added to the names of all lambda and arrow parameters.
 // This is used to simplify the test of whether a term has free variables.
-const PARAMETER_PREFIX: &str = "$";
+const PARAMETER_PREFIX: &str = "'";
 pub type VarSet = SmallSet<[String; 5]>;
 pub type Unifier = LinearMap<String, Rc<Term>>;
 
@@ -57,6 +57,17 @@ impl Definition {
 
     pub fn is_prop(&self, ctx: &Context) -> bool {
         self.dtype.is_prop(ctx)
+    }
+
+    pub fn is_type(&self, ctx: &Context) -> bool {
+        &self.dtype == ctx.get_type_constant()
+    }
+
+    pub fn is_arrow(&self, ctx: &Context) -> bool {
+        match self.dtype.as_ref() {
+            Term::Arrow { input_types: _, output_type: _ } => { true }
+            _ => { false }
+        }
     }
 }
 
@@ -247,22 +258,22 @@ impl ToString for Context {
 #[derive(PartialEq, Eq, Debug, Clone, Hash)]
 pub enum Term {
     Declaration { name: String, dtype: Rc<Term> },
+    PatternDeclaration { pattern: Rc<Term>, dtype: Rc<Term> },
     Atom { name: String },
     Arrow { input_types: Vec<Rc<Term>>, output_type: Rc<Term> },
     Lambda { parameters: Vec<Rc<Term>>, body: Rc<Term> },
     Application { function: Rc<Term>, arguments: Vec<Rc<Term>> },
 }
 
-fn rename_param_declaration(t: &mut Rc<Term>) -> Option<String> {
-    let (name, dtype) = match t.as_ref() {
-        Term::Declaration { name, dtype } => (name.clone(), dtype.clone()),
-        _ => { return None },
-    };
-
-    *t = Rc::new(Term::Declaration { name: format!("{}{}", PARAMETER_PREFIX, name),
-                                     dtype: dtype });
-
-    Some(name)
+fn rename_param_declarations(t: &mut Rc<Term>) -> VarSet {
+    match t.clone().as_ref() {
+        Term::Declaration { name, dtype } => {
+            *t = Rc::new(Term::Declaration { name: format!("{}{}", PARAMETER_PREFIX, name),
+                                             dtype: dtype.clone() });
+            SmallSet::from_iter([name.clone()])
+        },
+        _ => { SmallSet::new() }
+    }
 }
 
 pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -> Rc<Term> {
@@ -277,9 +288,9 @@ pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -
 
             for s in sub.drain(0..sub.len() - 1) {
                 let mut p = parse_term(s, decls);
-                if let Some(name) = rename_param_declaration(&mut p) {
+                for name in rename_param_declarations(&mut p).iter() {
                     param_names.push(name.clone());
-                    *decls.entry(name).or_insert(0) += 1;
+                    *decls.entry(name.clone()).or_insert(0) += 1;
                 }
                 params.push(p);
             }
@@ -300,7 +311,7 @@ pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -
         },
         Rule::declaration => {
             let mut children : Vec<Rc<Term>> = sub.drain(0..).map(|p| parse_term(p, decls)).collect();
-            assert_eq!(children.len(), 2, "Declaration should have two children: atom and type.");
+            assert_eq!(children.len(), 2, "Declaration should have two children: pattern and type.");
             let dtype = children.pop().unwrap();
             let atom = children.pop().unwrap();
             if let Term::Atom { name } = Rc::try_unwrap(atom).unwrap() {
@@ -308,6 +319,13 @@ pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -
             } else {
                 panic!("First child of a Declaration node should be an atom.")
             }
+        },
+        Rule::pattern_declaration => {
+            let mut children : Vec<Rc<Term>> = sub.drain(0..).map(|p| parse_term(p, decls)).collect();
+            assert_eq!(children.len(), 2, "Declaration should have two children: pattern and type.");
+            let dtype = children.pop().unwrap();
+            let pattern = children.pop().unwrap();
+            Rc::new(Term::PatternDeclaration { pattern: pattern, dtype: dtype })
         },
         Rule::atom => {
             Rc::new(Term::Atom { name: format!("{}{}",
@@ -321,9 +339,9 @@ pub(super) fn parse_term(pair: Pair<Rule>, decls: &mut HashMap<String, usize>) -
 
             for s in sub.drain(0..sub.len() - 1) {
                 let mut p = parse_term(s, decls);
-                if let Some(name) = rename_param_declaration(&mut p) {
+                for name in rename_param_declarations(&mut p).iter() {
                     param_names.push(name.clone());
-                    *decls.entry(name).or_insert(0) += 1;
+                    *decls.entry(name.clone()).or_insert(0) += 1;
                 }
                 input_types.push(p);
             }
@@ -364,12 +382,19 @@ impl<'a> Term {
     }
 
     pub fn is_prop(self: &Rc<Term>, ctx: &Context) -> bool {
-        &self.get_type(ctx) == ctx.get_prop_constant()
+        self.is_equality() || self == ctx.get_prop_constant()
     }
 
     pub fn free_variables(self: &Rc<Term>) -> VarSet {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.free_variables(),
+            Term::PatternDeclaration { pattern, dtype } => {
+                let mut s = pattern.free_variables();
+                for p in dtype.free_variables().iter() {
+                    s.insert(p.clone());
+                }
+                s
+            },
             Term::Atom { name } => {
                 if name.starts_with(PARAMETER_PREFIX) {
                     SmallSet::from_iter([name.clone()])
@@ -410,6 +435,13 @@ impl<'a> Term {
     pub fn free_atoms(self: &Rc<Term>) -> VarSet {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.free_atoms(),
+            Term::PatternDeclaration { pattern, dtype } => {
+                let mut s = pattern.free_variables();
+                for p in dtype.free_variables().iter() {
+                    s.insert(p.clone());
+                }
+                s
+            },
             Term::Atom { name } => {
                 SmallSet::from_iter([name.clone()])
             },
@@ -446,6 +478,7 @@ impl<'a> Term {
     pub fn get_type(self: &Rc<Term>, ctx: &Context) -> Rc<Term> {
         match self.as_ref() {
             Term::Declaration { name: _, dtype } => dtype.clone(),
+            Term::PatternDeclaration { pattern: _, dtype } => dtype.clone(),
             Term::Atom { name } => {
                 if let Some(def) = ctx.lookup(&name) {
                     return def.dtype.clone();
@@ -466,6 +499,8 @@ impl<'a> Term {
                     }
                 }
 
+                println!("Typing an application: {}", self);
+
                 match function.get_type(ctx).as_ref() {
                     Term::Arrow { input_types, output_type } => {
                         let mut input_types = input_types.clone();
@@ -473,17 +508,40 @@ impl<'a> Term {
 
                         for (i, arg) in arguments.iter().enumerate() {
                             let (types_before, types_after) = input_types.split_at_mut(i+1);
-                            // dtype is ignored since we here assume that arguments have the expected types.
-                            if let Term::Declaration { name, dtype: _ } = types_before[i].as_ref() {
-                                let v_ctx = arg.eval(ctx);
-                                for j in 0..types_after.len() {
-                                    types_after[j] = types_after[j].replace(name, &v_ctx).eval(ctx)
+                            let v_ctx = arg.eval(ctx);
+                            let v_type = v_ctx.get_type(ctx);
+
+                            let (value_pattern, param_type) = match types_before[i].as_ref() {
+                                Term::PatternDeclaration { pattern, dtype } =>
+                                    (Some(pattern.clone()), dtype.clone()),
+                                _ => (None, types_before[i].clone()),
+                            };
+
+                            let mut unifier = Unifier::new();
+
+                            if let Some(p) = &value_pattern {
+                                if !p.unify_params(&v_ctx, &mut unifier) {
+                                    panic!("Ill-typed term {}: value did not unify.", self);
                                 }
-                                output_type = output_type.replace(name, &v_ctx).eval(ctx)
+                            }
+
+                            if !param_type.unify_params(&v_type, &mut unifier) {
+                                panic!("Ill-typed term {}: value did not unify.", self);
+                            }
+
+                            for (name, value) in unifier.iter() {
+                                println!("{} => {}", name, value);
+                                for j in 0..types_after.len() {
+                                    types_after[j] = types_after[j].replace(name, &value).eval(ctx);
+                                }
+                                println!("Output type before replace: {}", output_type);
+                                output_type = output_type.replace(name, &value).eval(ctx);
+                                println!("After replace: {}", output_type);
                             }
                         }
 
                         if arguments.len() == input_types.len() {
+                            println!("{} has type {}", self, output_type);
                             return output_type;
                         } else {
                             return Rc::new(Term::Arrow { input_types, output_type });
@@ -500,6 +558,10 @@ impl<'a> Term {
             Term::Declaration { name, dtype } => {
                 Rc::new(Term::Declaration { name: name.clone(),
                                             dtype: dtype.eval(ctx) })
+            },
+            Term::PatternDeclaration { pattern, dtype } => {
+                Rc::new(Term::PatternDeclaration { pattern: pattern.eval(ctx),
+                                                   dtype: dtype.eval(ctx) })
             },
             Term::Atom { name } => {
                 if let Some(def) = ctx.lookup(&name) {
@@ -563,6 +625,16 @@ impl<'a> Term {
                     dtype: dtype.replace(r_name, r_value),
                 })
             },
+            Term::PatternDeclaration { pattern, dtype } => {
+                let self_params = self.free_variables();
+                if self_params.contains(r_name) {
+                    return self.clone()
+                }
+                Rc::new(Term::PatternDeclaration {
+                    pattern: pattern.replace(r_name, r_value),
+                    dtype: dtype.replace(r_name, r_value),
+                })
+            },
             Term::Atom { name } => {
                 if name == r_name {
                     r_value.clone()
@@ -610,7 +682,7 @@ impl<'a> Term {
             // self is an atom which is a parameter name.
             (Term::Atom { name: pname }, t) if is_parameter_name(pname) => {
                 match mapping.entry(pname.clone()) {
-                    // If occupied, return whether t and the current value are consistent.
+                    // If occupied, return whether t and the current value can be unified.
                     linear_map::Entry::Occupied(e) => { e.get().as_ref() == t },
                     // Otherwise, unify this parameter with the concrete value.
                     linear_map::Entry::Vacant(e) => { e.insert(concrete.clone()); true},
@@ -653,6 +725,17 @@ impl<'a> Term {
         }
     }
 
+    pub fn is_equality(self: &Term) -> bool {
+        if let Term::Application { function, arguments } = &self {
+            if let Term::Atom { name } = function.as_ref() {
+                if name == "=" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub fn extract_equality(self: &Term) -> Option<(Rc<Term>, Rc<Term>)> {
         if let Term::Application { function, arguments } = &self {
             if let Term::Atom { name } = function.as_ref() {
@@ -689,6 +772,11 @@ impl<'a> Term {
             Term::Declaration { name, dtype } => {
                 write!(f, "{} : ", if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
                                    else { &name[..] })?;
+                dtype.fmt_in_context(context, f)
+            },
+            Term::PatternDeclaration { pattern, dtype } => {
+                pattern.fmt_in_context(context, f)?;
+                write!(f, " : ")?;
                 dtype.fmt_in_context(context, f)
             },
             Term::Arrow { input_types, output_type } => {
@@ -749,6 +837,7 @@ impl fmt::Display for Term {
                                                         if name.starts_with(PARAMETER_PREFIX) { &name[1..] }
                                                         else { &name[..] },
                                                         dtype),
+            Term::PatternDeclaration { pattern, dtype } => write!(f, "{} : {}", pattern, dtype),
             Term::Arrow { input_types, output_type } => {
                 write!(f, "[")?;
                 for t in input_types.iter() {
@@ -812,6 +901,12 @@ impl Term {
                      dtype.to_sexp(),
                  ])
              },
+             Term::PatternDeclaration { pattern, dtype } => {
+                 AbstractSExp::new_application("$is".to_string(), vec![
+                     pattern.to_sexp(),
+                     dtype.to_sexp(),
+                 ])
+             },
              Term::Arrow { input_types, output_type } => {
                  let mut children = Vec::new();
                  for t in input_types.iter() {
@@ -867,6 +962,13 @@ impl Term {
             Term::Declaration { name, dtype } => {
                 s.push_str("($is ");
                 s.push_str(name.as_str());
+                s.push_str(" ");
+                dtype.write_pattern_string(s);
+                s.push_str(")");
+            },
+            Term::PatternDeclaration { pattern, dtype } => {
+                s.push_str("($is ");
+                pattern.write_pattern_string(s);
                 s.push_str(" ");
                 dtype.write_pattern_string(s);
                 s.push_str(")");
@@ -987,38 +1089,38 @@ pub mod tests {
         assert!(t1.unify_params(&t1, &mut Unifier::new()));
         assert!(t2.unify_params(&t2, &mut Unifier::new()));
 
-        let t1 = "$b".parse::<Term>().unwrap().rc();
+        let t1 = "'b".parse::<Term>().unwrap().rc();
         let t2 = "(leq 1 2)".parse::<Term>().unwrap().rc();
         let mut u = Unifier::new();
         assert!(t1.unify_params(&t2, &mut u));
         assert_eq!(u.len(), 1);
-        assert_eq!(u.get(&String::from("$b")), Some(&t2));
+        assert_eq!(u.get(&String::from("'b")), Some(&t2));
 
-        let t1 = "(leq $x $y)".parse::<Term>().unwrap().rc();
+        let t1 = "(leq 'x 'y)".parse::<Term>().unwrap().rc();
         let t2 = "(leq 1 2)".parse::<Term>().unwrap().rc();
         let mut u = Unifier::new();
         assert!(t1.unify_params(&t2, &mut u));
         assert_eq!(u.len(), 2);
-        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("1"));
-        assert_eq!(u.get(&String::from("$y")).unwrap().to_string(), String::from("2"));
+        assert_eq!(u.get(&String::from("'x")).unwrap().to_string(), String::from("1"));
+        assert_eq!(u.get(&String::from("'y")).unwrap().to_string(), String::from("2"));
 
-        let t1 = "(leq (+ $x $x) $y)".parse::<Term>().unwrap().rc();
+        let t1 = "(leq (+ 'x 'x) 'y)".parse::<Term>().unwrap().rc();
         let t2 = "(leq (+ 1 1) 2)".parse::<Term>().unwrap().rc();
         let mut u = Unifier::new();
         assert!(t1.unify_params(&t2, &mut u));
         assert_eq!(u.len(), 2);
-        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("1"));
-        assert_eq!(u.get(&String::from("$y")).unwrap().to_string(), String::from("2"));
+        assert_eq!(u.get(&String::from("'x")).unwrap().to_string(), String::from("1"));
+        assert_eq!(u.get(&String::from("'y")).unwrap().to_string(), String::from("2"));
 
-        let t1 = "(leq (+ $x $x) $x)".parse::<Term>().unwrap().rc();
+        let t1 = "(leq (+ 'x 'x) 'x)".parse::<Term>().unwrap().rc();
         let t2 = "(leq (+ 1 1) 2)".parse::<Term>().unwrap().rc();
         let mut u = Unifier::new();
         assert!(!t1.unify_params(&t2, &mut u));
 
-        let t1 = "(leq (+ $x $x) $x)".parse::<Term>().unwrap().rc();
+        let t1 = "(leq (+ 'x 'x) 'x)".parse::<Term>().unwrap().rc();
         let t2 = "(leq (+ (* a b) (* a b)) (* a b))".parse::<Term>().unwrap().rc();
         let mut u = Unifier::new();
         assert!(t1.unify_params(&t2, &mut u));
-        assert_eq!(u.get(&String::from("$x")).unwrap().to_string(), String::from("(* a b)"));
+        assert_eq!(u.get(&String::from("'x")).unwrap().to_string(), String::from("(* a b)"));
     }
 }

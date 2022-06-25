@@ -189,6 +189,9 @@ impl EGraphUniverse {
                 Some(self.egraph.add(SymbolLang::new(if is_param { PARAM_NODE } else { IS_NODE },
                                                      vec![name_id, type_id])))
             },
+            Term::PatternDeclaration{ pattern: _, dtype: _ } => {
+                panic!("EGraphUniverse cannot handle pattern declarations.")
+            },
             Term::Atom { name } => {
                 let name_id = self.egraph.add(SymbolLang::leaf(name));
 

@@ -8,18 +8,19 @@ definition = { (assume | declaration ~ ("=" ~ term)?) ~ "." }
 
 lambda = { "lambda" ~ "(" ~ declaration ~ ("," ~ declaration)* ~ ")" ~ term }
 declaration = { "let"? ~ atom ~ ":" ~ ttype }
+pattern_declaration = { ttype ~ ":" ~ ttype }
 assume = { "assume" ~ ttype }
 
 ttype = _{ atom | application | arrow }
 arrow = { "[" ~ (arrow_input_type ~ "->" )+ ~ ttype ~ "]" }
 
-arrow_input_type = _{ ttype | ( "(" ~ declaration ~ ")" ) }
+arrow_input_type = _{ ttype | ( "(" ~ pattern_declaration ~ ")" ) }
 
 application = { "(" ~ term ~ term+ ~ ")" }
 
-atom = @{ ('0'..'9' | 'a'..'z' | 'A'..'Z'
-                 | "_" | "-" | "+" | "/" | "*" | "="
-                 | "!" | "$" | "^" | ">" | "<" )+ }
+atom = @{ ('0'..'9' | 'a'..'z' | 'A'..'Z' | "'"
+                    | "_" | "-" | "+" | "/" | "*" | "="
+                    | "!" | "$" | "^" | ">" | "<" )+ }
 
 // Verification script
 verify = { "verify" ~ atom ~ "{" ~ verification_script ~ "}" }

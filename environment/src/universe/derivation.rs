@@ -107,60 +107,49 @@ impl Derivation {
             results.push(Rc::new(
                 Term::Application {
                     function: arrow_object.clone(),
+                    // TODO substitute the evaluated terms back for names.
                     arguments: inputs.clone(),
-                }).eval(&self.context_));
+                }));
             return;
         }
 
         // Otherwise, we pick the next argument.
-        let param_type: Rc<Term> = match input_types[next].as_ref() {
-            Term::Declaration { name: _, dtype } => dtype.clone(),
-            _ => input_types[next].clone(),
+        let (value_pattern, param_type) = match input_types[next].as_ref() {
+            Term::PatternDeclaration { pattern, dtype } => (Some(pattern.clone()), dtype.clone()),
+            _ => (None, input_types[next].clone()),
         };
 
         let param = predetermined.get(next).unwrap_or(&None).map(|name| vec![name.clone()]);
 
         for name in param.as_ref().unwrap_or(&self.context_.insertion_order) {
             let def = self.context_.lookup(&name).unwrap();
+            let val = Term::Atom { name: name.clone() }.rc().eval(&self.context_);
 
-            // If types exactly match.
-            if def.dtype == param_type {
-                let val = if let Some(val) = &def.value {
-                    val.clone()
-                } else {
-                    Term::Atom { name: name.clone() }.rc()
-                };
+            let mut unifier = Unifier::new();
+
+            // If this parameter has a value_pattern, def must have a value and unify with it.
+            if let Some(p) = &value_pattern {
+                if !p.unify_params(&val, &mut unifier) {
+                    continue;
+                }
+            }
+
+            if param_type.unify_params(&def.dtype, &mut unifier) {
+                // `val` can be used as this argument. Make the necessary substitutions to
+                // other parameter types (if any, i.e., if this is a dependent arrow) and
+                // keep going.
                 inputs.push(val);
 
-                match input_types[next].as_ref() {
-                    Term::Declaration { name: input_type_name, dtype: _ } => {
-                        // If this is a declaration, then other input types might depend on the
-                        // value of this argument. Substitute in them and proceed.
-                        let mut remaining_types : Vec<Rc<Term>> = input_types.clone();
-                        for i in inputs.len()..input_types.len() {
-                            remaining_types[i] = remaining_types[i].replace(&input_type_name,
-                                                                            &inputs[inputs.len() - 1]);
-                        }
-                        self.nondeterministically_apply_arrow(
-                            &arrow_object,
-                            &remaining_types,
-                            inputs,
-                            predetermined,
-                            results,
-                        );
-                    },
-                    _ => {
-                        // Otherwise, either this is not a dependent arrow or it is but no type
-                        // depends on this argument specifically. In any case, just continue.
-                        self.nondeterministically_apply_arrow(
-                            &arrow_object,
-                            &input_types,
-                            inputs,
-                            predetermined,
-                            results,
-                        );
+                let mut remaining_types : Vec<Rc<Term>> = input_types.clone();
+
+                for (name, value) in unifier.iter() {
+                    for i in inputs.len()..input_types.len() {
+                        remaining_types[i] = remaining_types[i].replace(name, &value);
                     }
                 }
+
+                self.nondeterministically_apply_arrow(
+                            &arrow_object, &remaining_types, inputs, predetermined, results);
 
                 inputs.pop();
             }
@@ -168,12 +157,13 @@ impl Derivation {
     }
 
     pub fn filter_equalities(&self, eq: Vec<Definition>) -> Vec<Definition> {
-        eq.into_iter().filter(|def| {
+        return eq;
+        /* eq.into_iter().filter(|def| {
             match def.dtype.extract_equality() {
                 Some((t1, t2)) => self.existing_values.contains_key(&t1),
                 None => true,
             }
-        }).collect()
+        }).collect() */
     }
 
     pub fn apply_with(&self, action: &String, param_name: &String) -> Vec<Definition> {
@@ -193,115 +183,63 @@ impl Derivation {
             (Some(action_def), Some(def)) => {
                 match action_def.dtype.as_ref() {
                     Term::Arrow { input_types, output_type } => {
-                        match (&def.value.as_ref().map(|t| t.eval(&self.context_)),
-                               output_type.extract_equality()) {
-                            (Some(val), Some((t1, t2))) => {
-                                // Try putting the given value in the output
-                                let mut u = Unifier::new();
-                                if t1.unify_params(val, &mut u) {
-                                    // Set the parameters that were unified.
-                                    let mut fixed_params: Vec<Option<&String>> = Vec::new();
-                                    let mut worked = true;
+                        // Try putting the given value in each of the parameter slots.
+                        for (i, input_type) in input_types.iter().enumerate() {
+                            let mut u = Unifier::new();
+                            let typechecks = if let Term::Declaration { name, dtype } = input_type.as_ref() {
+                                dtype.unify_params(&def.dtype, &mut u)
+                            } else {
+                                input_type.unify_params(&def.dtype, &mut u)
+                            };
 
-                                    for (j, t) in input_types.iter().enumerate() {
-                                        if let Term::Declaration { name, dtype } = t.as_ref() {
-                                            if let Some(p_val) = u.get(name) {
-                                                // Find a name for this value. Should not panic since
-                                                // all sub-terms should have been defined.
-                                                // nondeterministically_apply_arrow further checks if
-                                                // this has the type we actually need.
-                                                if let Some(p_name) = self.existing_values.get(p_val) {
-                                                    fixed_params.push(Some(p_name));
-                                                } else {
-                                                    worked = false;
-                                                    break;
-                                                }
+                            if !typechecks {
+                                continue;
+                            }
+
+                            // Set the parameters that were unified.
+                            let mut fixed_params: Vec<Option<&String>> = Vec::new();
+                            let mut worked = true;
+
+                            for (j, t) in input_types.iter().enumerate() {
+                                if i == j {
+                                    fixed_params.push(Some(&param_name));
+                                } else {
+                                    if let Term::Declaration { name, dtype } = t.as_ref() {
+                                        if let Some(p_val) = u.get(name) {
+                                            // Find a name for this value. Should not panic since
+                                            // all sub-terms should have been defined.
+                                            // nondeterministically_apply_arrow further checks if
+                                            // this has the type we actually need.
+                                            if let Some(p_name) = self.existing_values.get(p_val) {
+                                                fixed_params.push(Some(p_name));
+                                            } else {
+                                                worked = false;
+                                                break;
                                             }
                                         }
-                                        if fixed_params.len() == j {
-                                            fixed_params.push(None);
-                                        }
                                     }
-
-                                    if worked {
-                                        let mut results = Vec::new();
-                                        self.nondeterministically_apply_arrow(
-                                            &Rc::new(Term::Atom { name: action.clone() }),
-                                            input_types,
-                                            &mut Vec::new(),
-                                            &fixed_params,
-                                            &mut results
-                                        );
-
-                                        for r in results.into_iter() {
-                                            new_terms.push(Definition { dtype: r.get_type(&self.context_),
-                                                                        value: Some(r) });
-                                        }
+                                    if fixed_params.len() == j {
+                                        fixed_params.push(None);
                                     }
                                 }
-                            },
-                            _ => {
-                                // Try putting the given value in each of the parameter slots.
-                                for (i, input_type) in input_types.iter().enumerate() {
-                                    let mut u = Unifier::new();
-                                    let typechecks = if let Term::Declaration { name, dtype } = input_type.as_ref() {
-                                        dtype.unify_params(&def.dtype, &mut u)
-                                    } else {
-                                        input_type.unify_params(&def.dtype, &mut u)
-                                    };
+                            }
 
-                                    if !typechecks {
-                                        continue;
-                                    }
+                            if !worked {
+                                continue;
+                            }
 
-                                    // Set the parameters that were unified.
-                                    let mut fixed_params: Vec<Option<&String>> = Vec::new();
-                                    let mut worked = true;
+                            let mut results = Vec::new();
+                            self.nondeterministically_apply_arrow(
+                                &Rc::new(Term::Atom { name: action.clone() }),
+                                input_types,
+                                &mut Vec::new(),
+                                &fixed_params,
+                                &mut results
+                            );
 
-                                    for (j, t) in input_types.iter().enumerate() {
-                                        if i == j {
-                                            fixed_params.push(Some(&param_name));
-                                        } else {
-                                            if let Term::Declaration { name, dtype } = t.as_ref() {
-                                                if let Some(p_val) = u.get(name) {
-                                                    // Find a name for this value. Should not panic since
-                                                    // all sub-terms should have been defined.
-                                                    // nondeterministically_apply_arrow further checks if
-                                                    // this has the type we actually need.
-                                                    if let Some(p_name) = self.existing_values.get(p_val) {
-                                                        fixed_params.push(Some(p_name));
-                                                    } else {
-                                                        worked = false;
-                                                        // println!("Weird: {} not found as value", p_val);
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                            if fixed_params.len() == j {
-                                                fixed_params.push(None);
-                                            }
-                                        }
-                                    }
-
-                                    if !worked {
-                                        continue;
-                                    }
-
-                                    let mut results = Vec::new();
-                                    self.nondeterministically_apply_arrow(
-                                        &Rc::new(Term::Atom { name: action.clone() }),
-                                        input_types,
-                                        &mut Vec::new(),
-                                        &fixed_params,
-                                        &mut results
-                                    );
-
-                                    for r in results.into_iter() {
-                                        new_terms.push(Definition { dtype: r.get_type(&self.context_),
-                                                                    value: Some(r) });
-                                    }
-                                }
-
+                            for r in results.into_iter() {
+                                new_terms.push(Definition { dtype: r.get_type(&self.context_),
+                                                            value: Some(r) });
                             }
                         }
 
@@ -350,13 +288,8 @@ impl Derivation {
     }
 
     fn apply_builtin_eq_refl_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
-        if def.is_prop(&self.context_) {
+        if def.is_prop(&self.context_) || def.is_type(&self.context_) || def.is_arrow(&self.context_) {
             return;
-        }
-
-        match def.dtype.as_ref() {
-            Term::Arrow { input_types: _, output_type: _ } => { return; }
-            _ => {}
         }
 
         let val = match &def.value {
@@ -751,8 +684,8 @@ pub mod tests {
 
         leq : [nat -> nat -> prop].
 
-        leq_n_n : [(n : nat) -> (leq n n)].
-        leq_s : [(n : nat) -> (m : nat) -> (leq n m) -> (leq n (s m))].
+        leq_n_n : [('n : nat) -> (leq 'n 'n)].
+        leq_s : [('n : nat) -> ('m : nat) -> (leq 'n 'm) -> (leq 'n (s 'm))].
         "
         .parse()
         .unwrap();
@@ -795,9 +728,9 @@ pub mod tests {
         - : [real -> real -> real].
         * : [real -> real -> real].
 
-        +_comm : [(a : real) -> (b : real) -> (= (+ a b) (+ b a))].
-        +-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))].
-        +0_id : [(a : real) -> (= (+ a 0) a)].
+        +_comm : [('a : real) -> ('b : real) -> (= (+ 'a 'b) (+ 'b 'a))].
+        +-_assoc : [('a : real) -> ('b : real) -> ('c : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
+        +0_id : [('a : real) -> (= (+ 'a 0) 'a)].
 
         x : real.
         y : real.
@@ -827,5 +760,81 @@ pub mod tests {
         assert!(u.show_by(&"rewrite".to_string(), &"(= y (* 7 7))".parse().unwrap()).is_ok());
         assert!(u.show_by(&"eval".to_string(), &"(= (* 7 7) 49)".parse().unwrap()).is_ok());
         assert!(u.show_by(&"rewrite".to_string(), &"(= y 49)".parse().unwrap()).is_ok());
+    }
+
+    fn test_equation_solution_with_pattern_declarations() {
+        let real_theory: Context = "
+        real : type.
+
+        = : [(t : type) -> t -> t -> type].
+        + : [real -> real -> real].
+        - : [real -> real -> real].
+        * : [real -> real -> real].
+
+        +_comm : [((+ 'a 'b) : real) -> (= (+ 'a 'b) (+ 'b 'a))].
+        +-_assoc : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
+        +0_id : [((+ 'a 0) : real) -> (= (+ 'a 0) 'a)].
+
+        x : real.
+        y : real.
+
+        x_eq : (= (+ x 3) 10).
+        y_eq : (= y (* x x)).
+        "
+        .parse()
+        .unwrap();
+
+        let mut u = Derivation::new();
+        u.incorporate(&real_theory);
+
+        assert!(u.construct_by(&"-".to_string(), &"(- (+ x 3) 3)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"+-_assoc".to_string(), &"(= (- (+ x 3) 3) (+ x (- 3 3)))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= (- 3 3) 0)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= (- (+ x 3) 3) (+ x 0))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"+0_id".to_string(), &"(= (+ x 0) x)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= (- (+ x 3) 3) x)".parse().unwrap()).is_ok());
+        assert!(u.construct_by(&"-".to_string(), &"(- 10 3)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eq_refl".to_string(), &"(= (- (+ x 3) 3) (- (+ x 3) 3))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= x (- (+ x 3) 3))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= x (- 10 3))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= (- 10 3) 7)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= x 7)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= y (* 7 x))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= y (* 7 7))".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"eval".to_string(), &"(= (* 7 7) 49)".parse().unwrap()).is_ok());
+        assert!(u.show_by(&"rewrite".to_string(), &"(= y 49)".parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn test_arrow_with_pattern_declaration() {
+        let real_theory: Context = "
+        real : type.
+
+        = : [('t : type) -> 't -> 't -> prop].
+        + : [real -> real -> real].
+        * : [real -> real -> real].
+
+        /* This arrow can only be applied to an existing (+ 'a 0) term */
+        +0_id : [((+ 'a 0) : real) -> (= (+ 'a 0) 'a)].
+
+        x : real.
+        y : real.
+
+        x_eq : (= (+ (* 2 x) 0) 2).
+        y_eq : (= y (* x x)).
+        "
+        .parse()
+        .unwrap();
+
+        let mut u = Derivation::new();
+        u.incorporate(&real_theory);
+
+        // This should work.
+        assert!(u.show_by(&"+0_id".to_string(), &"(= (+ (* 2 x) 0) (* 2 x))".parse().unwrap()).is_ok());
+        // This should not - there's no (+ x 0) anywhere!
+        assert!(u.show_by(&"+0_id".to_string(), &"(= (+ x 0) x)".parse().unwrap()).is_err());
+        // Nor any (+ (* 2 y) 0) anywhere.
+        assert!(u.show_by(&"+0_id".to_string(), &"(= (+ (* 2 y) 0) (* 2 y))".parse().unwrap()).is_err());
+
     }
 }
