@@ -119,7 +119,8 @@ def batched_forward_search(domain: Domain,
 
         new_defs = [d
                     for dname in [name] + sub_defs
-                    for d in problem.universe.apply_all_with(dname)]
+                    for d in problem.universe.apply_all_with(
+                            domain.derivation_actions(problem.universe), dname)]
 
         unseen_vals, unseen_defs = [], []
 

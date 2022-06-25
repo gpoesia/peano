@@ -185,11 +185,11 @@ impl PyDerivation {
             .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
-    pub fn apply_all_with(&self, param_name: String) -> Vec<PyDefinition> {
+    pub fn apply_all_with(&self, actions: Vec<String>, param_name: String) -> Vec<PyDefinition> {
         let mut result = Vec::new();
-        for a in self.universe.actions() {
+        for a in actions {
             result.extend(
-                self.universe.apply_with(a, &param_name)
+                self.universe.apply_with(&a, &param_name)
                              .into_iter().map(|d| PyDefinition { def: d, action: a.clone() }));
         }
         result
