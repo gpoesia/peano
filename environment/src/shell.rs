@@ -9,7 +9,7 @@ use rustyline::Editor;
 use tempfile::NamedTempFile;
 use num_rational::Rational64;
 
-use peano::universe::{Universe, EGraphUniverse, Derivation, Context, Term};
+use peano::universe::{Universe, Derivation, Context, Term};
 
 // Program used to open images (used to visualize the underlying egraph).
 #[cfg(target_os = "linux")]
@@ -28,7 +28,7 @@ pub struct Shell {
 
 impl Shell {
     pub fn new() -> Shell {
-        // Shell { universe: Box::new(EGraphUniverse::new()) }
+        // Can also replace Derivation by EGraphUniverse.
         Shell { universe: Box::new(Derivation::new()) }
     }
 

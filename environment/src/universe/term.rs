@@ -64,7 +64,7 @@ impl Definition {
     }
 
     pub fn is_arrow(&self, ctx: &Context) -> bool {
-        match self.dtype.as_ref() {
+        match self.dtype.eval(ctx).as_ref() {
             Term::Arrow { input_types: _, output_type: _ } => { true }
             _ => { false }
         }
@@ -499,8 +499,6 @@ impl<'a> Term {
                     }
                 }
 
-                println!("Typing an application: {}", self);
-
                 match function.get_type(ctx).as_ref() {
                     Term::Arrow { input_types, output_type } => {
                         let mut input_types = input_types.clone();
@@ -530,18 +528,14 @@ impl<'a> Term {
                             }
 
                             for (name, value) in unifier.iter() {
-                                println!("{} => {}", name, value);
                                 for j in 0..types_after.len() {
                                     types_after[j] = types_after[j].replace(name, &value).eval(ctx);
                                 }
-                                println!("Output type before replace: {}", output_type);
                                 output_type = output_type.replace(name, &value).eval(ctx);
-                                println!("After replace: {}", output_type);
                             }
                         }
 
                         if arguments.len() == input_types.len() {
-                            println!("{} has type {}", self, output_type);
                             return output_type;
                         } else {
                             return Rc::new(Term::Arrow { input_types, output_type });
@@ -726,7 +720,7 @@ impl<'a> Term {
     }
 
     pub fn is_equality(self: &Term) -> bool {
-        if let Term::Application { function, arguments } = &self {
+        if let Term::Application { function, arguments: _ } = &self {
             if let Term::Atom { name } = function.as_ref() {
                 if name == "=" {
                     return true;

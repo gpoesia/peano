@@ -14,7 +14,7 @@ pub struct Equations {
 }
 
 impl Equations {
-    pub fn new_with_templates(templates: &str) -> Equations {
+    pub fn _new_with_templates(templates: &str) -> Equations {
         let mut u = EGraphUniverse::new();
         u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
 
@@ -26,12 +26,12 @@ impl Equations {
         }
     }
 
-    pub fn new_ct() -> Equations {
-        Self::new_with_templates(include_str!("./templates/equations-ct.txt"))
+    pub fn _new_ct() -> Equations {
+        Self::_new_with_templates(include_str!("./templates/equations-ct.txt"))
     }
 
-    pub fn new_easy() -> Equations {
-        Self::new_with_templates(include_str!("./templates/equations-easy.txt"))
+    pub fn _new_easy() -> Equations {
+        Self::_new_with_templates(include_str!("./templates/equations-easy.txt"))
     }
 }
 

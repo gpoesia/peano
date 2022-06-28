@@ -14,11 +14,6 @@ use super::term::{Context, Term, Definition, is_parameter_name, VerificationName
 use super::equivalence::AbstractSExp;
 use super::verifier::{VerificationScript, VerificationError};
 
-const IS_NODE: &str = &"$is";
-const PARAM_NODE: &str = &"$param";
-const ARROW_NODE: &str = &"$arrow";
-const APPLY_NODE: &str = &"$app";
-const LAMBDA_NODE: &str = &"$lambda";
 const REAL_TYPE_CONST: &str = &"real";
 
 #[derive(Clone)]
@@ -182,11 +177,11 @@ impl Derivation {
             },
             (Some(action_def), Some(def)) => {
                 match action_def.dtype.as_ref() {
-                    Term::Arrow { input_types, output_type } => {
+                    Term::Arrow { input_types, output_type: _ } => {
                         // Try putting the given value in each of the parameter slots.
                         for (i, input_type) in input_types.iter().enumerate() {
                             let mut u = Unifier::new();
-                            let typechecks = if let Term::Declaration { name, dtype } = input_type.as_ref() {
+                            let typechecks = if let Term::Declaration { name: _, dtype } = input_type.as_ref() {
                                 dtype.unify_params(&def.dtype, &mut u)
                             } else {
                                 input_type.unify_params(&def.dtype, &mut u)
@@ -204,7 +199,7 @@ impl Derivation {
                                 if i == j {
                                     fixed_params.push(Some(&param_name));
                                 } else {
-                                    if let Term::Declaration { name, dtype } = t.as_ref() {
+                                    if let Term::Declaration { name, dtype: _ } = t.as_ref() {
                                         if let Some(p_val) = u.get(name) {
                                             // Find a name for this value. Should not panic since
                                             // all sub-terms should have been defined.
