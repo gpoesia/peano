@@ -38,7 +38,7 @@ class Domain:
 class EquationsDomain(Domain):
     def __init__(self, cached_problems='linear-equations.pkl'):
         blank_domain = peano.get_domain('blank')
-        self.base_universe = blank_domain.generate(0)
+#        self.base_universe = blank_domain.generate(0)
         equations_theory = '''
 real : type.
 
@@ -50,41 +50,54 @@ real : type.
 * : [real -> real -> real].
 / : [real -> real -> real].
 
+/* Operate on both sides of an equation */
+add_eq : [(= 'a 'b) -> ('c : real) -> (= (+ 'a 'c) (+ 'b 'c))].
+sub_eq : [(= 'a 'b) -> ('c : real) -> (= (- 'a 'c) (- 'b 'c))].
+mul_eq : [(= 'a 'b) -> ('c : real) -> (= (* 'a 'c) (* 'b 'c))].
+div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
+
 /* Commutativity */
-+_comm : [(a : real) -> (b : real) -> (= (+ a b) (+ b a))].
-*_comm : [(a : real) -> (b : real) -> (= (* a b) (* b a))].
++_comm : [((+ 'a 'b) : real) -> (= (+ 'a 'b) (+ 'b 'a))].
+*_comm : [((* 'a 'b) : real) -> (= (* 'a 'b) (* 'b 'a))].
 
 /* Associativity */
-+_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (+ a (+ b c)) (+ (+ a b) c))].
-+-_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (- (+ a b) c) (+ a (- b c)))]. /* (a + b) - c = a + (b - c) */
-*/_assoc : [(a : real) -> (b : real) -> (c : real) -> (= (/ (* a b) c) (* a (/ b c)))]. /* (a * b) / c = a * (b / c) */
++_assoc_l : [((+ (+ 'a 'b) 'c) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
++_assoc_r : [((+ 'a (+ 'b 'c)) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
+
++-_assoc_r : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
++-_assoc_l : [((+ 'a (- 'b 'c)) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
+
+*/_assoc : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
 
 /* Distributivity */
-+*_dist : [(a : real) -> (b : real) -> (c : real) -> (= (* (+ a b) c) (+ (* a c) (* b c)))].
++_assoc : [((+ (+ 'a 'b) 'c) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
+
++*_dist_r : [((* (+ 'a 'b) 'c) : real) -> (= (* (+ 'a 'b) 'c) (+ (* 'a 'c) (* 'b 'c)))].
++*_dist_l : [((+ (* 'a 'c) (* 'b 'c)) : real) -> (= (* (+ 'a 'b) 'c) (+ (* 'a 'c) (* 'b 'c)))].
 
 /* Cancellation axioms */
-+0_id : [(a : real) -> (= (+ a 0) a)].
--0_id : [(a : real) -> (= (- a 0) a)].
-*1_id : [(a : real) -> (= (* a 1) a)].
-/1_id : [(a : real) -> (= (/ a 1) a)].
-div_self_id : [(a : real) -> (!= a 0) -> (= (/ a a) 1)].
--self_null: [(a : real) -> (= (- a a) 0)].
++0_id : [((+ 'a 0) : real) -> (= (+ 'a 0) 'a)].
+-0_id : [((- 'a 0) : real) -> (= (- 'a 0) 'a)].
+*1_id : [((* 'a 1) : real) -> (= (* 'a 1) 'a)].
+/1_id : [((/ 'a 1) : real) -> (= (/ 'a 1) 'a)].
+div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
+-self_null: [((- 'a 'a) : real) -> (= (- 'a 'a) 0)].
 
-*0_null : [(a : real) -> (= (* a 0) 0)].
-0_div_null : [(a : real) -> (!= a 0) -> (= (/ 0 a) 0)].
+*0_null : [((* 'a 0) : real) -> (= (* 'a 0) 0)].
+/* 0_div_null : [((/ 0 'a) : real) -> (= (/ 0 'a) 0)]. */
 x : real.
 '''
-        self.base_universe.incorporate(equations_theory)
+#        self.base_universe.incorporate(equations_theory)
         self.base_derivation = peano.PyDerivation()
         self.base_derivation.incorporate(equations_theory)
 
-        self.action_set = set(self.base_universe.actions())
+#        self.action_set = set(self.base_universe.actions())
         self.d_action_set = set(self.base_derivation.actions())
 
-        self.ignore = self.action_set.union({'real'})
+#        self.ignore = self.action_set.union({'real'})
         self.d_ignore = self.d_action_set.union({'real'})
-        self.action_set -= {'=', '!='}
-        self.d_action_set -= {'=', '!='}
+#        self.action_set -= {'=', '!=', '+', '-', '*', '/'}
+        self.d_action_set -= {'=', '!=', '+', '-', '*', '/', 'eq_refl'}
 
         if cached_problems:
             with open(os.path.join(os.path.dirname(__file__), cached_problems), 'rb') as f:

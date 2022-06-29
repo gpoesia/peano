@@ -507,7 +507,7 @@ impl<'a> Term {
                         for (i, arg) in arguments.iter().enumerate() {
                             let (types_before, types_after) = input_types.split_at_mut(i+1);
                             let v_ctx = arg.eval(ctx);
-                            let v_type = v_ctx.get_type(ctx);
+                            let v_type = arg.get_type(ctx);
 
                             let (value_pattern, param_type) = match types_before[i].as_ref() {
                                 Term::PatternDeclaration { pattern, dtype } =>

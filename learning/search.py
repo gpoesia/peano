@@ -21,6 +21,7 @@ from util import get_device
 import torch
 
 MAX_NEGATIVES = 10000
+MIN_UTILITY = -50
 
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,8 @@ def batched_forward_search(domain: Domain,
                                            definition=o,
                                            depth=0)
                 logger.debug('[%s] Utility of %s: %f', pd.definition.generating_action(), val, -pd.utility)
-                heapq.heappush(pqs[heuristic.group(o, 0)], pd)
+                if pd.utility >= MIN_UTILITY:
+                    heapq.heappush(pqs[heuristic.group(o, 0)], pd)
 
     visited_negatives = set()
 
@@ -105,11 +107,11 @@ def batched_forward_search(domain: Domain,
         if not nonempty_pqs:
             break
 
-        k, pq = random.choices(nonempty_pqs, weights=[1 / (1 + cnts[k]) for k, _ in nonempty_pqs])[0]
+        k, pq = random.choices(nonempty_pqs, weights=[1 / (1 + cnts[k]) for k, v in nonempty_pqs])[0]
         d = heapq.heappop(pq)
-        logger.debug('Adding %s from queue %s, utility %f', d.definition, k, -d.utility)
-
         name = f'!step{idx}'
+        logger.debug('Adding %s = %s from queue %s, utility %f', name, d.value, k, -d.utility)
+
         idx += 1
         sub_defs = problem.universe.define(name, d.definition)
         steps[name] = d.definition
@@ -128,6 +130,7 @@ def batched_forward_search(domain: Domain,
             val = problem.universe.value_of(d)
 
             if val not in seen_vals:
+                seen_vals.add(val)
                 unseen_defs.append(d)
                 unseen_vals.append(val)
 
@@ -135,8 +138,9 @@ def batched_forward_search(domain: Domain,
             utilities = heuristic.utility(problem.description, unseen_vals)
 
             for v, d, u in zip(unseen_vals, unseen_defs, utilities):
+                if u < MIN_UTILITY:
+                    continue
                 next_depth = max([0] + [depth[parent] + 1 for parent in d.dependencies()])
-                seen_vals.add(v)
                 pd = PrioritizedDefinition(-u,
                                            value=v,
                                            definition=d,
@@ -153,7 +157,9 @@ def batched_forward_search(domain: Domain,
         solution_defs = recover_solution(steps, goal, order)
         solution = [problem.universe.value_of(s) for s in solution_defs]
         visited_negatives -= set(solution)
-        # print_solution(solution_defs, problem.universe)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            print_solution(solution_defs, problem.universe)
     else:
         solution = None
 
@@ -242,8 +248,13 @@ class SearcherAgent:
             problem = self.domain.generate_derivation(seed)
 
             if self.debug:
-                if input(f'Problem #{seed}: {problem.description} - skip? (y/n)') == 'y':
+                r = input(f'Problem #{seed}: {problem.description} - skip? (y/n/t)')
+
+                if r == 'y':
                     continue
+                elif r == 't':
+                    problem = self.domain.start_derivation(input('Problem: '), input('Goal: '))
+
                 breakpoint()
 
             with torch.no_grad():
@@ -277,8 +288,8 @@ def run_search_on_batch(domain, seeds, utility_fn, max_depth, output_path, debug
     return result
 
 
-def run_trained_utility_function(domain, seeds, model_path, device, output_path,
-                                 debug, max_depth=400, rerank_top_k=500):
+def run_utility_function(domain, seeds, model_path, device, output_path,
+                         debug, max_depth=400, rerank_top_k=500):
     if model_path is not None:
         m = torch.load(model_path, map_location=device)
         m.to(device)
@@ -299,12 +310,13 @@ def run_trained_utility_function(domain, seeds, model_path, device, output_path,
 @hydra.main(version_base="1.2", config_path="config", config_name="search")
 def main(cfg: DictConfig):
     if cfg.task == 'solve':
-        run_trained_utility_function(make_domain(cfg.domain),
-                                     range(cfg.range[0], cfg.range[1]),
-                                     to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
-                                     get_device(cfg),
-                                     to_absolute_path(cfg.output),
-                                     cfg.get('debug'))
+        run_utility_function(make_domain(cfg.domain),
+                             range(cfg.range[0], cfg.range[1]),
+                             to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
+                             get_device(cfg),
+                             to_absolute_path(cfg.output),
+                             cfg.get('debug'),
+                             max_depth=400)
     else:
         raise ValueError(f'Unknown command {cfg.task}')
 
