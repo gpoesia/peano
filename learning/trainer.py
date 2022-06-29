@@ -17,7 +17,7 @@ from domain import make_domain
 from utility import GRUUtilityFunction, LengthUtilityFunction, TwoStageUtilityFunction
 from util import get_device
 from episode import ProofSearchEpisode
-from search import SearcherAgent, SearcherResults, run_trained_utility_function
+from search import SearcherAgent, SearcherResults, run_utility_function
 
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class TrainerAgent:
                 # Evaluate the current agent.
                 logger.info('Evaluating...')
 
-                eval_results = run_trained_utility_function(
+                eval_results = run_utility_function(
                     make_domain(self.domain),
                     eval_seeds,
                     last_checkpoint,
