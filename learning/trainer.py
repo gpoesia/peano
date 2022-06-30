@@ -125,7 +125,7 @@ class TrainerAgent:
                                 rerank_top_k=self.rerank_top_k,
                                 model_path=last_checkpoint,
                                 seeds=random.choices(seeds, k=self.batch_size),
-                                gpu=self.config.gpus[j],
+                                gpu=self.config.gpus[:-1][j % (len(self.config.gpus) - 1)],
                             )
                         )
                     # Evaluate the current agent.
