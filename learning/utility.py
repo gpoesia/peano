@@ -42,6 +42,21 @@ class ContrastiveExample:
     negatives: list[str]
 
 
+def batch_values(vals, max_size):
+    batches = [[]]
+    max_len = 0
+
+    for v in vals:
+        if len(batches[-1]) * max_len > max_size:
+            max_len = 0
+            batches.append([])
+
+        batches[-1].append(v)
+        max_len = max(max_len, len(v))
+
+    return batches
+
+
 class GRUUtilityFunction(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -62,6 +77,7 @@ class GRUUtilityFunction(nn.Module):
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         self.max_len = 300
+        self.max_batch_size = 32000
         self.interaction = config.interaction
         self.normalize = config.normalize
         self.config = config
@@ -91,13 +107,14 @@ class GRUUtilityFunction(nn.Module):
         # return f'({definition.generating_action()}, {depth})'
 
     def utility(self, problem, values) -> torch.Tensor:
-        problems = [problem] * len(values)
-
         if self.training:
-            return self(problems, values)
+            return self([problem] * len(values), values)
 
         with torch.no_grad():
-            return self(problems, values).cpu().tolist()
+            utilities = []
+            for vs in batch_values(values, 2000):
+                utilities.extend(self([problem] * len(vs), vs).cpu().tolist())
+            return utilities
 
     def forward(self, problems, objects):
         if self.interaction == 'concat':
