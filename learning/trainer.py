@@ -5,6 +5,7 @@ import os
 import random
 import pickle
 import logging
+import itertools
 from concurrent.futures import ProcessPoolExecutor
 
 import torch
@@ -23,7 +24,7 @@ from search import SearcherAgent, SearcherResults, run_utility_function
 logger = logging.getLogger(__name__)
 
 
-def spawn_searcher(domain, max_depth, rerank_top_k, model_path, seeds, gpu):
+def spawn_searcher(rank, iteration, domain, max_depth, rerank_top_k, model_path, seeds, gpu):
     if model_path is not None:
         device = torch.device(gpu)
         m = torch.load(model_path, map_location=device).to(device)
@@ -34,7 +35,15 @@ def spawn_searcher(domain, max_depth, rerank_top_k, model_path, seeds, gpu):
 
     agent = SearcherAgent(make_domain(domain), h, max_depth)
 
-    return agent.run_batch(seeds)
+    episodes = agent.run_batch(seeds)
+
+    path = f'rollouts/it{iteration}/searcher{}.pt'
+    os.makedirs(os.path.dirname(path))
+
+    with open(path, 'wb') as f:
+        pickle.dump(episodes, f)
+
+    return episodes
 
 
 class TrainerAgent:
@@ -48,15 +57,39 @@ class TrainerAgent:
         self.config = config
         self.searcher_futures = []
 
-    def learn(self, seeds, eval_seeds):
-        m = GRUUtilityFunction(self.config.utility)
-        m = m.to(get_device(self.config.gpus[0]))
+    def start(self):
+        'Reloads the last checkpoint.'
 
+        if 'run_dir' in self.config:
+            os.chdir(self.config.run_dir)
+
+        last_checkpoint = None
+
+        for i in itertools.count(0):
+            path_i = os.path.join(os.getcwd(), f'{i}.pt')
+            if os.path.exists(path_i):
+                last_checkpoint = path_i
+            else:
+                iteration = i
+                break
+
+        device = get_device(self.config.gpus[0])
+
+        if last_checkpoint is None:
+            m = GRUUtilityFunction(self.config.utility)
+        else:
+            m = torch.load(last_checkpoint, map_location)
+
+        m = m.to(device)
+        return m, iteration, last_checkpoint
+
+    def learn(self, seeds, eval_seeds):
+        m, iteration, last_checkpoint = self.start()
         last_checkpoint = None
         episodes = []
 
         with ProcessPoolExecutor() as executor:
-            for it in range(self.config.iterations):
+            for it in range(iteration, self.config.iterations):
                 logger.info("### Iteration %d ###", it)
                 # Spawn N searchers.
                 logger.info('Spawning searchers...')
@@ -64,6 +97,8 @@ class TrainerAgent:
                     self.searcher_futures.append(
                         executor.submit(
                             spawn_searcher,
+                            iteration=it,
+                            rank=j,
                             domain=self.domain,
                             max_depth=self.max_depth,
                             rerank_top_k=self.rerank_top_k,
@@ -89,8 +124,6 @@ class TrainerAgent:
                 wandb.log({'success_rate': eval_results.success_rate()})
 
                 # Aggregate episodes from searchers.
-                episodes = []
-
                 for i, f in enumerate(self.searcher_futures):
                     logger.info('Waiting for searcher #%d...', i)
                     result_i = f.result()
