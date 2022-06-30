@@ -132,7 +132,7 @@ class TrainerAgent:
                     logger.info('Evaluating...')
 
                     if not os.path.exists(f'eval-episodes-{it}.pkl'):
-                        run_utility_function(
+                        eval_results = run_utility_function(
                             make_domain(self.domain),
                             eval_seeds,
                             last_checkpoint,
