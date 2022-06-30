@@ -21,7 +21,7 @@ from util import get_device
 import torch
 
 MAX_NEGATIVES = 10000
-MIN_UTILITY = -50
+MIN_UTILITY = -70
 
 
 logger = logging.getLogger(__name__)

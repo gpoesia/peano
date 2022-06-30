@@ -128,3 +128,11 @@ def get_device(cfg):
         return torch.device(cfg.gpu)
 
     return torch.device('cpu')
+
+
+def choose_from_list(prompt, l, to_str=str):
+    print(prompt)
+    for i, e in enumerate(l):
+        print(f'{i:2d} - ', to_str(e))
+
+    return l[int(input('> '))]

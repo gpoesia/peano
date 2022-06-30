@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from random import randint, choices, choice, sample
 from typing import List
+import itertools
+import collections
 
 import sympy
 from sympy.solvers import solve
@@ -11,6 +13,7 @@ from sympy.core.numbers import Rational
 import click
 import pickle
 from tqdm import tqdm
+import peano
 
 
 class TermFormatType(Enum):
@@ -224,6 +227,27 @@ def simplify(n, degree, max_complexity, output):
             pbar.update(1)
     with open(output, 'wb') as output:
         pickle.dump(expressions, output)
+
+@cli.command()
+@click.option("--n", default=1000000, help="Number of CT equations to generate.")
+@click.option("--output", default="equations-ct.pkl", help="Output filepath (.pkl)")
+def equations_ct(n, output):
+    """Generates expressions and one possible simplification."""
+    print('Generating equations from cognitive tutor templates...')
+
+    d = peano.get_domain('equations-ct')
+
+    ds = []
+    seed = itertools.count()
+
+    for i in tqdm(range(n)):
+        equation = d.generate(next(seed)).starting_state()
+        ds.append(equation)
+
+    with open(output, 'wb') as output:
+        pickle.dump(ds, output)
+        print('Wrote', output)
+
 
 if __name__ == "__main__":
     cli()

@@ -3,11 +3,15 @@
 import os
 import pickle
 from fractions import Fraction
-import random
+import itertools
 from typing import Optional
 import re
 
+import hydra
+from omegaconf import DictConfig
+
 import peano
+from util import choose_from_list
 
 
 # Representing an existential type: each domain has /some/ associated problem type.
@@ -65,15 +69,16 @@ div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 +_assoc_r : [((+ 'a (+ 'b 'c)) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
 
 +-_assoc_r : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
-+-_assoc_l : [((+ 'a (- 'b 'c)) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
++-_assoc_l : [((+ 'a (- 'b 'c)) : real) -> (= (+ 'a (- 'b 'c)) (- (+ 'a 'b) 'c))].
 
-*/_assoc : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
+*/_assoc_r : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
+*/_assoc_l : [((* 'a (/ 'b 'c)) : real) -> (= (* 'a (/ 'b 'c)) (/ (* 'a 'b) 'c))].
 
 /* Distributivity */
 +_assoc : [((+ (+ 'a 'b) 'c) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
 
-+*_dist_r : [((* (+ 'a 'b) 'c) : real) -> (= (* (+ 'a 'b) 'c) (+ (* 'a 'c) (* 'b 'c)))].
-+*_dist_l : [((+ (* 'a 'c) (* 'b 'c)) : real) -> (= (* (+ 'a 'b) 'c) (+ (* 'a 'c) (* 'b 'c)))].
++*_dist_l : [((+ (* 'a 'c) (* 'b 'c)) : real) -> (= (+ (* 'a 'c) (* 'b 'c)) (* (+ 'a 'b) 'c))].
+-*_dist_l : [((- (* 'a 'c) (* 'b 'c)) : real) -> (= (- (* 'a 'c) (* 'b 'c)) (* (- 'a 'b) 'c))].
 
 /* Cancellation axioms */
 +0_id : [((+ 'a 0) : real) -> (= (+ 'a 0) 'a)].
@@ -167,6 +172,11 @@ x : real.
         return list(self.d_action_set)
 
 
+class EquationsCtDomain(EquationsDomain):
+    def __init__(self):
+        super().__init__(f'equations-ct.pkl')
+
+
 class SimplificationDomain(EquationsDomain):
     def __init__(self, level):
         super().__init__(f'simpl-{level}.pkl')
@@ -200,9 +210,49 @@ class Simpl4Domain(SimplificationDomain):
 def make_domain(name):
     return ({
         'equations': EquationsDomain,
+        'equations-ct': EquationsCtDomain,
         'simpl0': Simpl0Domain,
         'simpl1': Simpl1Domain,
         'simpl2': Simpl2Domain,
         'simpl3': Simpl3Domain,
         'simpl4': Simpl4Domain,
     })[name]()
+
+@hydra.main(version_base="1.2", config_path="config", config_name="trainer")
+def main(cfg: DictConfig):
+    domain = make_domain(cfg.domain)
+    seeds = range(*cfg.seeds)
+
+    for seed in seeds:
+        if seed == -1:
+            p = domain.start_derivation(input('Type problem: '), '(= x ?)')
+        else:
+            p = domain.generate_derivation(seed)
+            print('Problem:', p.description)
+
+        cnt = itertools.count(0)
+        solution = [(p.description, 'assumption')]
+
+        while not domain.derivation_done(p.universe):
+            print('### Solution so far:')
+            for j, (v, a) in enumerate(solution):
+                print(f'#{j:02d} {v} by {a}')
+
+            action = choose_from_list('Choose action:', domain.derivation_actions(p.universe))
+
+            defs = p.universe.apply(action)
+
+            if not defs:
+                print('No outcomes!')
+                continue
+
+            o = choose_from_list('Choose outcome:', defs)
+            p.universe.define(f'!step{next(cnt)}', o)
+
+            solution.append((p.universe.value_of(o), action))
+
+        print('Solved!\n\n')
+
+
+if __name__ == '__main__':
+    main()

@@ -11,17 +11,10 @@ import numpy as np
 
 from environment import *
 import util
+from util import choose_from_list
 from domain import EquationsDomain, make_domain
 from policy import encode_batch, decode_batch, EOS
 from search import batched_forward_search
-
-
-def _choose_from_list(prompt, l, to_str=str):
-    print(prompt)
-    for i, e in enumerate(l):
-        print(f'{i:2d} - ', to_str(e))
-
-    return l[int(input('> '))]
 
 
 def _input_problem(domain, derivation=False):
@@ -35,9 +28,9 @@ def _input_problem(domain, derivation=False):
                 else domain.start_derivation)(p, g)
 
     generate = domain.generate if not derivation else domain.generate_derivation
-    return _choose_from_list('Pick a problem:',
-                             [generate(i) for i in range(40)],
-                             lambda p: p.description)
+    return choose_from_list('Pick a problem:',
+                            [generate(i) for i in range(40)],
+                            lambda p: p.description)
 
 
 def run_beam_search(agent_path, domain, device):
@@ -98,12 +91,12 @@ def interact_with_environment(domain):
         actions = domain.actions(p.universe)
 
         print('State:', domain.state(p.universe))
-        a = _choose_from_list('Arrow to apply:', actions)
+        a = choose_from_list('Arrow to apply:', actions)
 
         prob *= 1 / len(actions)
 
         outcomes = p.universe.apply(a)
-        o = _choose_from_list('Result to use:', outcomes)
+        o = choose_from_list('Result to use:', outcomes)
 
         prob *= 1 / len(outcomes)
 
@@ -121,10 +114,10 @@ def make_derivation(domain):
         actions = domain.derivation_actions(p.universe)
 
         print('Derivation so far:', domain.derivation_state(p.universe))
-        a = _choose_from_list('Arrow to apply:', actions)
+        a = choose_from_list('Arrow to apply:', actions)
 
         outcomes = p.universe.apply(a)
-        o = _choose_from_list('Result to use:', outcomes)
+        o = choose_from_list('Result to use:', outcomes)
 
         p.universe.define(f'!subd{i}', o)
         i += 1
@@ -170,7 +163,7 @@ def interact_with_policy(policy_path, domain, device):
                     action_scores = list(zip(actions, scores))
                     action_scores.sort(key=lambda a_s: -a_s[1])
 
-                    a = _choose_from_list('Arrow to apply:',
+                    a = choose_from_list('Arrow to apply:',
                                           action_scores,
                                           to_str=lambda a_s: f'[{a_s[1]:.3f}]  {a_s[0]}')[0]
 
@@ -182,7 +175,7 @@ def interact_with_policy(policy_path, domain, device):
                     outcome_scores = list(zip(outcomes, scores))
                     outcome_scores.sort(key=lambda o_s: -o_s[1])
 
-                    o = _choose_from_list('Result to use:',
+                    o = choose_from_list('Result to use:',
                                           outcome_scores,
                                           to_str=lambda o_s: f'[{o_s[1]:.3f}]  {o_s[0].clean_str(p.universe)}')[0]
 

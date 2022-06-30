@@ -15,8 +15,8 @@ pub struct Equations {
 
 impl Equations {
     pub fn _new_with_templates(templates: &str) -> Equations {
-        let mut u = EGraphUniverse::new();
-        u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
+        let u = EGraphUniverse::new();
+        // u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
 
         Equations {
             cc_equations: CCEquations::new(templates),
@@ -26,11 +26,11 @@ impl Equations {
         }
     }
 
-    pub fn _new_ct() -> Equations {
+    pub fn new_ct() -> Equations {
         Self::_new_with_templates(include_str!("./templates/equations-ct.txt"))
     }
 
-    pub fn _new_easy() -> Equations {
+    pub fn new_easy() -> Equations {
         Self::_new_with_templates(include_str!("./templates/equations-easy.txt"))
     }
 }
@@ -43,19 +43,8 @@ impl Domain for Equations {
     fn generate(&self, seed: u64) -> (EGraphUniverse, String) {
         let eq = self.cc_equations.generate_eq_term(seed);
         let eq_term = commoncore_term_to_peano_term(eq.t.as_ref());
-        let problem_str = format!("{}.", eq_term);
-        let mut u = self.base_universe.clone();
-
-        u.define(String::from("x"),
-                 Definition { dtype: self.real_dtype.clone(), value: None },
-                 false);
-
-        u.define(String::from("eq"),
-                 Definition { dtype: eq_term, value: None },
-                 false);
-
-        u.rebuild();
-
+        let problem_str = format!("{}", eq_term);
+        let u = self.base_universe.clone();
         (u, problem_str)
     }
 
