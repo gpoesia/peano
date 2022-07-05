@@ -70,8 +70,7 @@ def recover_solution(steps, goal, order):
 def batched_forward_search(domain: Domain,
                            problem: Problem,
                            heuristic: SearchHeuristic,
-                           batch_size: int,
-                           max_batches: int=100):
+                           max_nodes: int):
     seen_vals = set()
     pqs = collections.defaultdict(list)
     cnts = collections.defaultdict(int)
@@ -98,7 +97,7 @@ def batched_forward_search(domain: Domain,
 
     visited_negatives = set()
 
-    for i in range(batch_size):
+    for i in range(max_nodes):
         if domain.derivation_done(problem.universe):
             break
 
@@ -175,6 +174,108 @@ def batched_forward_search(domain: Domain,
     )
 
 
+def beam_search(domain: Domain,
+                problem: Problem,
+                heuristic: SearchHeuristic,
+                max_nodes: int,
+                max_depth: int):
+
+    seen_vals = set()
+    beam = []
+    steps = {}
+    order = []
+    idx = 0
+
+    beam_size = (max_nodes + max_depth - 1) // max_depth
+
+    # Get first beam.
+    for action in domain.derivation_actions(problem.universe):
+        outcomes = problem.universe.apply(action)
+
+        for o in outcomes:
+            val = problem.universe.value_of(o)
+            if val not in seen_vals:
+                seen_vals.add(val)
+                beam.append(PrioritizedDefinition(None, value=val, definition=o, depth=0))
+
+    visited_negatives = set()
+    discovered_negatives = []
+
+    for i in range(max_depth):
+        # Get top K definitions by utility.
+        utilities = heuristic.utility(problem.description, [pd.value for pd in beam])
+
+        for pd, u in zip(beam, utilities):
+            pd.utility = u
+
+        random.shuffle(beam)  # Break ties arbitrarily.
+        beam.sort(key=lambda pd: pd.utility, reverse=True)
+
+        # Save discarded values as negatives.
+        discovered_negatives.extend([pd.value for pd in beam[beam_size:]])
+        beam = beam[:beam_size]
+
+        # Compute the next beam if we need to.
+        if domain.derivation_done(problem.universe) or i + 1 == max_depth:
+            break
+
+        next_beam = []
+
+        for pd in beam:
+            name = f'!step{idx}'
+            logger.debug('Adding %s = %s from beam %d, utility %f',
+                         name, pd.value, i, -pd.utility)
+
+            idx += 1
+            sub_defs = problem.universe.define(name, pd.definition)
+            steps[name] = pd.definition
+            visited_negatives.add(pd.value)
+            order.append(name)
+
+            new_defs = [d
+                        for dname in [name] + sub_defs
+                        for d in problem.universe.apply_all_with(
+                                domain.derivation_actions(problem.universe), dname)]
+
+            unseen_vals, unseen_defs = [], []
+
+            for d in new_defs:
+                val = problem.universe.value_of(d)
+
+                if val not in seen_vals:
+                    seen_vals.add(val)
+                    next_beam.append(PrioritizedDefinition(None, value=val, definition=d, depth=i+1))
+
+        beam = next_beam
+
+    goal = domain.derivation_done(problem.universe)
+
+    discovered_negatives = random.sample(discovered_negatives,
+                                         k=min(len(discovered_negatives), MAX_NEGATIVES))
+
+    if goal:
+        solution_defs = recover_solution(steps, goal, order)
+        solution = [problem.universe.value_of(s) for s in solution_defs]
+        visited_negatives -= set(solution)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            print_solution(solution_defs, problem.universe)
+    else:
+        solution = None
+
+    return ProofSearchEpisode(
+        success=(goal is not None),
+        iterations=i,
+        steps_added=idx,
+        steps_created=len(seen_vals),
+        problem=problem.description,
+        solution=solution,
+        visited_negatives=visited_negatives,
+        discovered_negatives=discovered_negatives,
+    )
+
+
+
 def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=400):
     domain = make_domain('equations')
 
@@ -203,7 +304,7 @@ def test_search_heuristic_hyperparams(name, group_fn, depth_weight, max_depth=40
             p,
             group_fn,
             utility=lambda val, depth: (depth_weight * depth - len(val)),
-            batch_size=max_depth,
+            max_nodes=max_depth,
         )
 
         successes.append(episode.success)
@@ -234,9 +335,13 @@ class SearcherAgent:
     from the a TrainerAgent.
     '''
 
-    def __init__(self, domain, utility_fn, max_depth, debug=False):
+    def __init__(self, domain, utility_fn, max_nodes, max_depth,
+                 algorithm='best-first-search', debug=False):
+
         self.domain = domain
+        self.algorithm = algorithm
         self.utility_fn = utility_fn
+        self.max_nodes = max_nodes
         self.max_depth = max_depth
         self.debug = debug
 
@@ -258,12 +363,21 @@ class SearcherAgent:
                 breakpoint()
 
             with torch.no_grad():
-                episode = batched_forward_search(
-                    self.domain,
-                    problem,
-                    self.utility_fn,
-                    batch_size=self.max_depth,
-                )
+                if self.algorithm == 'best-first-search':
+                    episode = batched_forward_search(
+                        self.domain,
+                        problem,
+                        self.utility_fn,
+                        max_nodes=self.max_nodes,
+                    )
+                elif self.algorithm == 'beam-search':
+                    episode = beam_search(
+                        self.domain,
+                        problem,
+                        self.utility_fn,
+                        max_nodes=self.max_nodes,
+                        max_depth=self.max_depth
+                    )
 
             if episode.success:
                 logger.info('Solved %s', episode.problem)
@@ -274,8 +388,8 @@ class SearcherAgent:
         return SearcherResults(episodes)
 
 
-def run_search_on_batch(domain, seeds, utility_fn, max_depth, output_path, debug):
-    searcher = SearcherAgent(domain, utility_fn, max_depth, debug)
+def run_search_on_batch(domain, seeds, utility_fn, algorithm, max_nodes, max_depth, output_path, debug):
+    searcher = SearcherAgent(domain, utility_fn, max_nodes, max_depth, algorithm, debug)
 
     result = searcher.run_batch(seeds)
     print(f'Solved {result.successes()}/{len(seeds)}')
@@ -288,8 +402,8 @@ def run_search_on_batch(domain, seeds, utility_fn, max_depth, output_path, debug
     return result
 
 
-def run_utility_function(domain, seeds, model_path, device, output_path,
-                         debug, max_depth=400, rerank_top_k=500):
+def run_utility_function(domain, seeds, model_path, device, algorithm, output_path,
+                         debug, max_nodes=400, max_depth=20, rerank_top_k=500):
     if model_path is not None:
         m = torch.load(model_path, map_location=device)
         m.to(device)
@@ -300,11 +414,13 @@ def run_utility_function(domain, seeds, model_path, device, output_path,
         h = LengthUtilityFunction()
 
     return run_search_on_batch(domain,
-                        seeds,
-                        h,
-                        max_depth,
-                        output_path,
-                        debug)
+                               seeds,
+                               h,
+                               algorithm,
+                               max_nodes,
+                               max_depth,
+                               output_path,
+                               debug)
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="search")
@@ -314,9 +430,11 @@ def main(cfg: DictConfig):
                              range(cfg.range[0], cfg.range[1]),
                              to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
                              get_device(cfg),
+                             cfg.algorithm,
                              to_absolute_path(cfg.output),
                              cfg.get('debug'),
-                             max_depth=400)
+                             max_nodes=1000,
+                             max_depth=20)
     else:
         raise ValueError(f'Unknown command {cfg.task}')
 

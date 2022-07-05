@@ -24,7 +24,8 @@ from search import SearcherAgent, SearcherResults, run_utility_function
 logger = logging.getLogger(__name__)
 
 
-def spawn_searcher(rank, iteration, domain, max_depth, rerank_top_k, model_path, seeds, gpu):
+def spawn_searcher(rank, iteration, domain, max_nodes, max_depth,
+                   rerank_top_k, model_path, seeds, gpu):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
 
     if os.path.exists(out_path):
@@ -39,7 +40,7 @@ def spawn_searcher(rank, iteration, domain, max_depth, rerank_top_k, model_path,
     else:
         h = LengthUtilityFunction()
 
-    agent = SearcherAgent(make_domain(domain), h, max_depth)
+    agent = SearcherAgent(make_domain(domain), h, max_nodes, max_depth)
 
     episodes = agent.run_batch(seeds)
 
@@ -58,6 +59,7 @@ class TrainerAgent:
         self.n_searchers = config.n_searchers
         self.rerank_top_k = config.rerank_top_k
         self.domain = config.domain
+        self.max_nodes = config.max_nodes
         self.max_depth = config.max_depth
         self.config = config
         self.searcher_futures = []
@@ -121,6 +123,7 @@ class TrainerAgent:
                                 iteration=it,
                                 rank=j,
                                 domain=self.domain,
+                                max_nodes=self.max_nodes,
                                 max_depth=self.max_depth,
                                 rerank_top_k=self.rerank_top_k,
                                 model_path=last_checkpoint,
