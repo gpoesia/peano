@@ -4,6 +4,7 @@
 
 import argparse
 import logging
+import pickle
 
 import torch
 from tqdm import tqdm
@@ -14,7 +15,7 @@ import util
 from util import choose_from_list
 from domain import EquationsDomain, make_domain
 from policy import encode_batch, decode_batch, EOS
-from search import batched_forward_search
+from search import batched_forward_search, ProofSearchEpisode
 
 
 def _input_problem(domain, derivation=False):
@@ -223,6 +224,26 @@ def try_random_rollouts(env, n_problems=10**3, n_steps=30):
         print(p)
 
 
+def print_solutions(path, min_length=0):
+    with open(path, 'rb') as f:
+        episodes = pickle.load(f)
+
+    solved_episodes = [e for e in episodes if e.success]
+
+    print(f'{len(solved_episodes)}/{len(episodes)} solutions.')
+
+    for e in solved_episodes:
+        print(f'### {e.problem} - {len(e.solution)} steps')
+
+        if len(e.solution) < min_length:
+            continue
+
+        for i, step in enumerate(e.solution):
+            print(f'{i:02d}. {step}')
+
+        print('###\n\n')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
     parser.add_argument('--eval', help='Evaluate the given agent on the test set.', action='store_true')
@@ -231,6 +252,8 @@ if __name__ == '__main__':
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
+    parser.add_argument('--print', help='Pretty print solved episodes.',
+                        type=str)
     parser.add_argument('--derivation', help='Solve a problem manually', action='store_true')
     parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
@@ -272,3 +295,5 @@ if __name__ == '__main__':
         interact_with_policy(opt.agent, domain, device)
     elif opt.generate:
         generate_from_policy(opt.agent, domain, device)
+    elif opt.print:
+        print_solutions(opt.print)
