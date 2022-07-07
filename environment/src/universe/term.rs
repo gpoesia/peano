@@ -382,7 +382,7 @@ impl<'a> Term {
     }
 
     pub fn is_prop(self: &Rc<Term>, ctx: &Context) -> bool {
-        self.is_equality() || self == ctx.get_prop_constant()
+        self.is_equality() || &self.get_type(&ctx) == ctx.get_prop_constant()
     }
 
     pub fn free_variables(self: &Rc<Term>) -> VarSet {
