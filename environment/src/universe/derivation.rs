@@ -238,6 +238,7 @@ impl Derivation {
 
     fn apply_builtin_eval_with(&self, obj_name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
         if let Some(val) = &def.value {
+            /* Numeric evaluation */
             if let Term::Application { function, arguments } = val.as_ref() {
                 if let Term::Atom { name } = &function.as_ref() {
                     if arguments.len() == 2 && (name == "+" || name == "-" ||
@@ -266,6 +267,21 @@ impl Derivation {
                         }
                     }
                 }
+            }
+
+            /* Lambda evaluation */
+            let evaluated_term = val.eval(&self.context_);
+            if evaluated_term != *val {
+                new_terms.push(Definition {
+                    dtype: Rc::new(Term::Application {
+                        function: Rc::new(Term::Atom { name: String::from("=") }),
+                        arguments: vec![val.clone(), evaluated_term.clone()],
+                    }),
+                    value: Some(Rc::new(Term::Application {
+                        function: Rc::new(Term::Atom { name: String::from("eval") }),
+                        arguments: vec![Rc::new(Term::Atom { name: obj_name.clone() })],
+                    }))
+                });
             }
         }
     }
