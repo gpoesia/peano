@@ -18,7 +18,7 @@ from policy import encode_batch, decode_batch, EOS
 from search import batched_forward_search, ProofSearchEpisode
 
 
-def _input_problem(domain, derivation=False):
+def _input_problem(domain, derivation=True):
     opt = input('a) Type problem, b) select one from list, or Enter for debug mode: ')
 
     if opt == 'a':
@@ -88,10 +88,10 @@ def interact_with_environment(domain):
     i, p = 0, _input_problem(domain)
     prob = 1
 
-    while not domain.reward(p.universe):
-        actions = domain.actions(p.universe)
+    while not domain.derivation_done(p.universe):
+        actions = domain.derivation_actions(p.universe)
 
-        print('State:', domain.state(p.universe))
+        print('State:', domain.derivation_state(p.universe))
         a = choose_from_list('Arrow to apply:', actions)
 
         prob *= 1 / len(actions)
@@ -118,6 +118,11 @@ def make_derivation(domain):
         a = choose_from_list('Arrow to apply:', actions)
 
         outcomes = p.universe.apply(a)
+
+        if not outcomes:
+            print('No result!')
+            continue
+
         o = choose_from_list('Result to use:', outcomes)
 
         p.universe.define(f'!subd{i}', o)
