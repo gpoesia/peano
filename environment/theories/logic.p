@@ -76,8 +76,10 @@ verify and_distributes_over_or {
     assume (and A (or B C)).
     show A by and_l.
     show (or B C) by and_r.
+
     let b_and : [B -> (and A B)] = lambda (b : B) (and_cons A B A b).
     let c_and : [C -> (and A C)] = lambda (c : C) (and_cons A C A c).
+
     let b_or : [B -> (or (and A B) (and A C))]. /* = lambda (b : B) (or_l (and A B)
                                                                       (and B C)
                                                                       (b_and b)). */

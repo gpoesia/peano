@@ -8,6 +8,12 @@ real : type.
 * : [real -> real -> real].
 / : [real -> real -> real].
 
+/* Operate on both sides */
+add_eq: [(a : real) -> (b : real) -> (= a b) -> (c : real) -> (= (+ a c) (+ b c))].
+sub_eq: [(a : real) -> (b : real) -> (= a b) -> (c : real) -> (= (- a c) (- b c))].
+mul_eq: [(a : real) -> (b : real) -> (= a b) -> (c : real) -> (= (* a c) (* b c))].
+div_eq: [(a : real) -> (b : real) -> (= a b) -> (c : real) -> (= (/ a c) (/ b c))].
+
 /* Commutativity */
 +_comm : [(a : real) -> (b : real) -> (= (+ a b) (+ b a))].
 *_comm : [(a : real) -> (b : real) -> (= (* a b) (* b a))].
@@ -42,7 +48,7 @@ verify simple_xy_eqs {
     show (= (- (+ x 3) 3) (+ x 0)) by rewrite.
     show (= (+ x 0) x) by +0_id.
     show (= (- (+ x 3) 3) x) by rewrite.
-    construct (- 10 3) by -.
+
     show (= (- (+ x 3) 3) (- (+ x 3) 3)) by eq_refl.
     show (= x (- (+ x 3) 3)) by rewrite.
     show (= x (- 10 3)) by rewrite.
