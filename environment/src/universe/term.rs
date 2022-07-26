@@ -560,7 +560,7 @@ impl<'a> Term {
             Term::Atom { name } => {
                 if let Some(def) = ctx.lookup(&name) {
                     match &def.value {
-                        Some(value) => value.clone(),
+                        Some(value) => value.eval(ctx),
                         None => self.clone(),
                     }
                 } else {

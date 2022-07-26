@@ -77,11 +77,17 @@ impl Derivation {
 
             if let Some((t1, t2)) = def.dtype.extract_equality() {
                 if t1 != t2 {
+                    // NOTE: This might be avoided if we maintain the invariant that
+                    // defined terms are already in their canonical form.
+                    let t1 = t1.eval(&self.context_);
+                    let t2 = t2.eval(&self.context_);
+
                     for prop_name in self.context_.insertion_order.iter() {
                         let prop_def = self.context_.lookup(prop_name).unwrap();
 
                         if prop_def.is_prop(&self.context_) {
-                            self.rewrite_in(prop_name, &prop_def.dtype, &t1, &t2, name, new_terms);
+                            let prop_dtype = prop_def.dtype.eval(&self.context_);
+                            self.rewrite_in(prop_name, &prop_dtype, &t1, &t2, name, new_terms);
                         }
                     }
                 }
@@ -92,21 +98,26 @@ impl Derivation {
     fn nondeterministically_apply_arrow(&self,
                                         arrow_object: &Rc<Term>,
                                         input_types: &Vec<Rc<Term>>,
+                                        output_type: &Rc<Term>,
                                         inputs: &mut Vec<Rc<Term>>,
                                         predetermined: &Vec<Option<&String>>,
-                                        results: &mut Vec<Rc<Term>>) {
+                                        results: &mut Vec<(Rc<Term>, Rc<Term>)>) {
         let next = inputs.len();
 
         // If we have filled up all necessary arguments.
         if next == input_types.len() {
-            results.push(Rc::new(
+            results.push((Rc::new(
                 Term::Application {
                     function: arrow_object.clone(),
-                    // Substitute the evaluated terms back for names.
-                    arguments: inputs.iter().map(|v| Term::Atom {
-                        name: self.existing_values.get(v).unwrap().clone()
-                    }.rc()).collect()
-                }));
+                    // Substitute the evaluated terms back for names if possible.
+                    // This should always be possible when using Peano as an environment,
+                    // since all sub-terms will always be named.
+                    arguments: inputs.iter().map(|v| match self.existing_values.get(v) {
+                        Some(name) => Term::Atom { name: name.clone() }.rc(),
+                        None => v.clone()
+                    }).collect()
+                }),
+                output_type.clone()));
             return;
         }
 
@@ -138,15 +149,17 @@ impl Derivation {
                 inputs.push(val);
 
                 let mut remaining_types : Vec<Rc<Term>> = input_types.clone();
+                let mut output_type = output_type.clone();
 
                 for (name, value) in unifier.iter() {
                     for i in inputs.len()..input_types.len() {
                         remaining_types[i] = remaining_types[i].replace(name, &value);
                     }
+                    output_type = output_type.replace(name, &value);
                 }
 
                 self.nondeterministically_apply_arrow(
-                            &arrow_object, &remaining_types, inputs, predetermined, results);
+                            &arrow_object, &remaining_types, &output_type, inputs, predetermined, results);
 
                 inputs.pop();
             }
@@ -179,7 +192,7 @@ impl Derivation {
             },
             (Some(action_def), Some(def)) => {
                 match action_def.dtype.as_ref() {
-                    Term::Arrow { input_types, output_type: _ } => {
+                    Term::Arrow { input_types, output_type } => {
                         // Try putting the given value in each of the parameter slots.
                         for (i, input_type) in input_types.iter().enumerate() {
                             let val = Term::Atom { name: param_name.clone() }.rc().eval(&self.context_);
@@ -215,13 +228,14 @@ impl Derivation {
                             self.nondeterministically_apply_arrow(
                                 &Rc::new(Term::Atom { name: action.clone() }),
                                 input_types,
+                                output_type,
                                 &mut Vec::new(),
                                 &fixed_params,
                                 &mut results
                             );
 
-                            for r in results.into_iter() {
-                                new_terms.push(Definition { dtype: r.get_type(&self.context_),
+                            for (r, t) in results.into_iter() {
+                                new_terms.push(Definition { dtype: t,
                                                             value: Some(r) });
                             }
                         }
@@ -405,8 +419,10 @@ impl Derivation {
                                          Definition { dtype: real_type,
                                                       value: None });
                     // subterm_names.push(name.clone());
+                    true
+                } else {
+                    false
                 }
-                true
             },
             Term::Application { function, arguments } => {
                 self.define_subterms(&function, false, subterm_names);
@@ -420,7 +436,8 @@ impl Derivation {
             _ => false,
         };
 
-        if !is_root && !is_real_atom && !self.existing_values.contains_key(t) {
+        if !is_root && !is_real_atom && !self.existing_values.contains_key(t) &&
+            !self.is_builtin_application(t) {
             let dname = format!("!sub{}", self.next_term_id());
             let dtype = t.get_type(&self.context_);
 
@@ -431,6 +448,20 @@ impl Derivation {
                                  Definition { dtype,
                                               value: Some(t.clone()) });
             subterm_names.push(dname);
+        }
+    }
+
+    fn is_builtin_application(&self, t: &Rc<Term>) -> bool {
+        match t.as_ref() {
+            Term::Application { function, arguments: _ } => {
+                match function.as_ref() {
+                    Term::Atom { name } => {
+                        name == "rewrite" || name == "eq_symm" || name == "eq_refl" || name == "eval"
+                    },
+                    _ => false
+                }
+            },
+            _ => false
         }
     }
 }
@@ -454,9 +485,11 @@ impl Universe for Derivation {
 
         self.define_subterms(&def.dtype, false, &mut subterm_names);
 
-        if let Some(value) = &def.value {
-            self.define_subterms(&value, true, &mut subterm_names);
-            self.existing_values.entry(value.clone()).or_insert_with(|| name.clone());
+        if !def.is_prop(&self.context_) {
+            if let Some(value) = &def.value {
+                self.define_subterms(&value, true, &mut subterm_names);
+                self.existing_values.entry(value.clone()).or_insert_with(|| name.clone());
+            }
         }
 
         self.existing_values.entry(Term::Atom { name: name.clone() }.rc()).or_insert_with(|| name.clone());
@@ -501,9 +534,11 @@ impl Universe for Derivation {
     // Otherwise, returns an Err with all the objects that were constructed by the action.
     fn show_by(&mut self, action: &String, target_type: &Term) -> Result<(), Vec<Definition>> {
         let results = self.application_results(action);
+        let target_type = Rc::new(target_type.clone());
+        let target_type_e = target_type.eval(&self.context_);
 
         for def in results.iter() {
-            if target_type == def.dtype.as_ref() {
+            if target_type_e == def.dtype.eval(&self.context_) {
                 self.define(format!("r_{}_", action), def.clone(), true);
                 self.rebuild();
                 return Ok(())
@@ -530,18 +565,19 @@ impl Universe for Derivation {
             },
             Some(action_def) => {
                 match action_def.dtype.as_ref() {
-                    Term::Arrow { input_types, output_type: _ } => {
+                    Term::Arrow { input_types, output_type } => {
                         let mut results = Vec::new();
                         self.nondeterministically_apply_arrow(
                             &Rc::new(Term::Atom { name: action.clone() }),
                             input_types,
+                            output_type,
                             &mut Vec::new(),
                             &vec![],
                             &mut results
                         );
 
-                        for r in results.into_iter() {
-                            new_terms.push(Definition { dtype: r.get_type(&self.context_),
+                        for (r, t) in results.into_iter() {
+                            new_terms.push(Definition { dtype: t,
                                                         value: Some(r) });
                         }
 
