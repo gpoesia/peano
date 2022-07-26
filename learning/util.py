@@ -94,6 +94,12 @@ def parse_sexp(s: str, ptr: int = 0) -> (object, int):
         return s[before:ptr], ptr
 
 
+def randomize_atoms(sexp, criteria, sample):
+    if isinstance(sexp, str):
+        return str(sample()) if criteria(sexp) else sexp
+    return [randomize_atoms(s, criteria, sample) for s in sexp]
+
+
 def format_sexp(sexp):
     if isinstance(sexp, str):
         return sexp

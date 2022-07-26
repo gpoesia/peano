@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 
+import functools
 import os
 import pickle
 from fractions import Fraction
 import itertools
 from typing import Optional
 import re
+import random
 
 import hydra
 from omegaconf import DictConfig
+import numpy as np
 
 import peano
-from util import choose_from_list
+from util import choose_from_list, parse_sexp, format_sexp, randomize_atoms
 
 
 # Representing an existential type: each domain has /some/ associated problem type.
@@ -40,7 +43,7 @@ class Domain:
 
 
 class EquationsDomain(Domain):
-    def __init__(self, cached_problems='linear-equations.pkl'):
+    def __init__(self, cached_problems='linear-equations.pkl', variables=['x']):
         blank_domain = peano.get_domain('blank')
 #        self.base_universe = blank_domain.generate(0)
         equations_theory = '''
@@ -90,8 +93,9 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 
 *0_null : [((* 'a 0) : real) -> (= (* 'a 0) 0)].
 /* 0_div_null : [((/ 0 'a) : real) -> (= (/ 0 'a) 0)]. */
-x : real.
 '''
+        for v in variables:
+            equations_theory += f'{v} : real.'
 #        self.base_universe.incorporate(equations_theory)
         self.base_derivation = peano.PyDerivation()
         self.base_derivation.incorporate(equations_theory)
@@ -206,10 +210,170 @@ class Simpl4Domain(SimplificationDomain):
     def __init__(self):
         super().__init__(4)
 
+class EquationsDomainFromTemplates(EquationsDomain):
+    def __init__(self, templates, variables=['x']):
+        super().__init__(None, variables)
+        self.templates = templates
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+
+        template = random.choice(self.templates)
+        sexp = parse_sexp(template)
+
+        # Randomize numeric literals.
+        sexp = randomize_atoms(sexp,
+                               lambda s: s == 'd',
+                               lambda: int(np.random.randn() * 5))
+
+        # Randomize operators.
+        sexp = randomize_atoms(sexp,
+                               lambda s: s == 'op',
+                               lambda: random.choice("+-*/"))
+
+        return self.start_derivation(format_sexp(sexp), '(= x ?)')
+
+
+class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
+    def __init__(self):
+        super().__init__([
+            "(= x (op d d))"
+            "(= x (op (op d d) d))"
+            "(= x (op d (op d d)))"
+            "(= x (op (op d d) (op d d)))"
+        ])
+
+class CombiningLikeTerms(EquationsDomainFromTemplates):
+    def __init__(self):
+        super().__init__([
+            "(= answer (+ (+ n d) d))"
+            "(= answer (- (+ n d) d))"
+            "(= answer (+ (- n d) d))"
+            "(= answer (- (- n d) d))"
+        ], variables=['x', 'answer'])
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to find an equality between answer and a simplified term.'
+        for name, val, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            try:
+                # These match simplified expressions:
+                rational = r'-?\d+(/\d+)'
+                patterns = [
+                    fr'\(= answer {rational}\)',
+                    fr'\(= answer \([+-] x {rational}\)\)',  # x + k
+                    fr'\(= answer \(* {rational} x\)\)',  # k * x
+                    fr'\(= answer \(/ x {rational}\)\)',  # x / k
+                    fr'\(= answer \([+-] ([*/] x {rational}\) {rational})\)',  # a*x +- b
+                ]
+                for pattern in patterns:
+                    m = re.match(pattern, val)
+                    if m:
+                        return name
+            except ValueError:
+                pass
+        return None
+
+
+class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
+    def __init__(self):
+        super().__init__([
+            "(= (+ x d) d)",
+            "(= (- x d) d)",
+            "(= (+ d x) d)",
+            "(= (- d x) d)",
+        ])
+
+class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
+    def __init__(self):
+        super().__init__([
+            "(= (* x d) d)",
+            "(= (/ x d) d)",
+            "(= (* d x) d)",
+        ])
+
+
+class TwoStepEquations(EquationsDomainFromTemplates):
+    def __init__(self):
+        super().__init__([
+            "(= (op (op x d) d) d)",
+            "(= (op d (op x d)) d)",
+            "(= (op d (op d x)) d)",
+        ])
+
+
+class CountingDomain(Domain):
+    def __init__(self, max_term=50):
+        blank_domain = peano.get_domain('blank')
+        nat_theory = '''
+nat : type.
+
+z : nat.
+s : [nat -> nat].
+
+= : [('t : type) -> 't -> 't -> prop].
+
+add : [nat -> nat -> nat].
+
+add_z : [((add z 'n) : nat) -> (= (add z 'n) 'n)].
+add_s : [((add (s 'm) 'n) : nat) -> (= (add (s 'm) 'n) (s (add 'm 'n)))].
+
+n : nat.
+'''
+        self.base_derivation = peano.PyDerivation()
+        self.base_derivation.incorporate(nat_theory)
+
+        self.d_action_set = set(self.base_derivation.actions())
+
+        self.d_ignore = self.d_action_set.union({'nat', 'z', 'n'})
+        self.d_action_set -= {'='}
+
+        self.max_term = max_term
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+
+        n1 = random.randint(0, self.max_term)
+        n2 = random.randint(0, self.max_term)
+
+        return self.start_derivation(
+            f'(= n (add {CountingDomain._format_nat(n1)} {CountingDomain._format_nat(n2)}))',
+            goal=f'Compute n, the addition of {n1} and {n2}'
+        )
+
+    @staticmethod
+    @functools.cache
+    def _format_nat(n):
+        return 'z' if n == 0 else f'(s {CountingDomain._format_nat(n-1)})'
+
+    def start_derivation(self, equation: str, goal: str):
+        u = self.base_derivation.clone()
+        u.incorporate(f'equation: {equation}.')
+        return Problem(u, equation, goal)
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to an equality between n and a reduced natural number.'
+        for name, val, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            m = re.match(r'^\(= n (.*)\)$', val)
+            if m and m.groups()[0].find('add') == -1:
+                return name
+        return None
+
+    def derivation_state(self, universe) -> str:
+        return '. '.join(f'{name}: {val}'
+                         for name, val, _is_prop, _deps in universe.state(self.d_ignore))
+
+    def derivation_actions(self, _universe):
+        return list(self.d_action_set)
+
 
 def make_domain(name):
     return ({
         'equations': EquationsDomain,
+        'counting': CountingDomain,
         'equations-ct': EquationsCtDomain,
         'simpl0': Simpl0Domain,
         'simpl1': Simpl1Domain,
@@ -217,6 +381,7 @@ def make_domain(name):
         'simpl3': Simpl3Domain,
         'simpl4': Simpl4Domain,
     })[name]()
+
 
 @hydra.main(version_base="1.2", config_path="config", config_name="trainer")
 def main(cfg: DictConfig):
