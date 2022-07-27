@@ -167,7 +167,7 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 
     def derivation_state(self, universe) -> str:
         return '. '.join(f'{name}: {val}'
-                         for name, val, _deps in universe.state(self.d_ignore))
+                         for name, val, _is_prop, _deps in universe.state(self.d_ignore))
 
     def actions(self, _universe):
         return list(self.action_set)
@@ -219,7 +219,7 @@ class EquationsDomainFromTemplates(EquationsDomain):
         random.seed(seed)
 
         template = random.choice(self.templates)
-        sexp = parse_sexp(template)
+        sexp, _ = parse_sexp(template)
 
         # Randomize numeric literals.
         sexp = randomize_atoms(sexp,
@@ -230,6 +230,12 @@ class EquationsDomainFromTemplates(EquationsDomain):
         sexp = randomize_atoms(sexp,
                                lambda s: s == 'op',
                                lambda: random.choice("+-*/"))
+        sexp = randomize_atoms(sexp,
+                               lambda s: s == '+-',
+                               lambda: random.choice("+-"))
+        sexp = randomize_atoms(sexp,
+                               lambda s: s == '*/',
+                               lambda: random.choice("*/"))
 
         return self.start_derivation(format_sexp(sexp), '(= x ?)')
 
@@ -246,10 +252,8 @@ class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
 class CombiningLikeTerms(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= answer (+ (+ n d) d))"
-            "(= answer (- (+ n d) d))"
-            "(= answer (+ (- n d) d))"
-            "(= answer (- (- n d) d))"
+            "(= answer (+- (+- x d) d))",
+            "(= answer (*/ (*/ x d) d))"
         ], variables=['x', 'answer'])
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
@@ -259,13 +263,14 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
                 continue
             try:
                 # These match simplified expressions:
-                rational = r'-?\d+(/\d+)'
+                rational = r'-?\d+(/\d+)?'
                 patterns = [
                     fr'\(= answer {rational}\)',
                     fr'\(= answer \([+-] x {rational}\)\)',  # x + k
-                    fr'\(= answer \(* {rational} x\)\)',  # k * x
+                    fr'\(= answer \(\* {rational} x\)\)',  # k * x
                     fr'\(= answer \(/ x {rational}\)\)',  # x / k
-                    fr'\(= answer \([+-] ([*/] x {rational}\) {rational})\)',  # a*x +- b
+                    fr'\(= answer \([+-] (\* {rational} x\) {rational})\)',  # a*x +- b
+                    fr'\(= answer \([+-] (/ x {rational}) {rational})\)',  # x/k +- b
                 ]
                 for pattern in patterns:
                     m = re.match(pattern, val)
@@ -375,6 +380,11 @@ def make_domain(name):
         'equations': EquationsDomain,
         'counting': CountingDomain,
         'equations-ct': EquationsCtDomain,
+        'subst-eval': SubstitutionAndEvaluatingExpressions,
+        'comb-like': CombiningLikeTerms,
+        'one-step-add-eq': OneStepAdditionAndSubtractionEquations,
+        'one-step-mul-eq': OneStepMultiplicationAndDivisionEquations,
+        'two-step-eq': TwoStepEquations,
         'simpl0': Simpl0Domain,
         'simpl1': Simpl1Domain,
         'simpl2': Simpl2Domain,
