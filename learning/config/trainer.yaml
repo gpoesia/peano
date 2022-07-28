@@ -1,10 +1,22 @@
 task: train
 
 train_interval: [0, 1000000]
-eval_interval: [10000000, 10000500]
+eval_interval: [10000000, 10000200]
 
 trainer:
-    domain: equations
+    train_domains:
+        - subst-eval
+        - subst-eval
+        - mix(subst-eval, comb-like)
+        - mix(subst-eval, comb-like)
+        - mix(subst-eval, comb-like, one-step-add-eq)
+        - mix(subst-eval, comb-like, one-step-add-eq)
+
+    eval_domains:
+        - subst-eval
+        - comb-like
+        - one-step-add-eq
+
     iterations: 10
     batch_size: 2000
     n_searchers: 5

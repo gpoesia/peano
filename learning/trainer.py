@@ -58,9 +58,10 @@ class TrainerAgent:
         self.iterations = config.iterations
         self.n_searchers = config.n_searchers
         self.rerank_top_k = config.rerank_top_k
-        self.domain = config.domain
         self.max_nodes = config.max_nodes
         self.max_depth = config.max_depth
+        self.train_domains = config.train_domains
+        self.eval_domains = config.eval_domains
         self.config = config
         self.searcher_futures = []
 
@@ -101,6 +102,9 @@ class TrainerAgent:
         m = m.to(device)
         return m, iteration, last_checkpoint, episodes, episodes_iteration
 
+    def get_train_domain(self, it: int):
+        return self.train_domains[min(it, len(self.train_domains) - 1)]
+
     def learn(self, seeds, eval_seeds):
         m, iteration, last_checkpoint, episodes, ep_it = self.start()
 
@@ -122,7 +126,7 @@ class TrainerAgent:
                                 spawn_searcher,
                                 iteration=it,
                                 rank=j,
-                                domain=self.domain,
+                                domain=self.get_train_domain(it),
                                 max_nodes=self.max_nodes,
                                 max_depth=self.max_depth,
                                 rerank_top_k=self.rerank_top_k,
@@ -134,19 +138,20 @@ class TrainerAgent:
                     # Evaluate the current agent.
                     logger.info('Evaluating...')
 
-                    if not os.path.exists(f'eval-episodes-{it}.pkl'):
-                        eval_results = run_utility_function(
-                            make_domain(self.domain),
-                            eval_seeds,
-                            last_checkpoint,
-                            get_device(self.config.gpus[-1]),
-                            f'eval-episodes-{it}.pkl',
-                            debug=False,
-                            max_depth=self.max_depth,
-                            rerank_top_k=self.rerank_top_k,
-                        )
+                    for d in self.eval_domains:
+                        if not os.path.exists(f'eval-episodes-{d}-{it}.pkl'):
+                            eval_results = run_utility_function(
+                                make_domain(d),
+                                eval_seeds,
+                                last_checkpoint,
+                                get_device(self.config.gpus[-1]),
+                                f'eval-episodes-{d}-{it}.pkl',
+                                debug=False,
+                                max_depth=self.max_depth,
+                                rerank_top_k=self.rerank_top_k,
+                            )
 
-                        wandb.log({'success_rate': eval_results.success_rate()})
+                            wandb.log({f'success_rate_{d}': eval_results.success_rate()})
 
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
