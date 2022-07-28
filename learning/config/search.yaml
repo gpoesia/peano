@@ -1,4 +1,4 @@
 domain: equations
 range: [0, 200]
 output: episodes.pkl
-algorithm: beam-search
+algorithm: best-first-search
