@@ -243,10 +243,10 @@ class EquationsDomainFromTemplates(EquationsDomain):
 class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= x (op d d))"
-            "(= x (op (op d d) d))"
-            "(= x (op d (op d d)))"
-            "(= x (op (op d d) (op d d)))"
+            "(= x (op d d))",
+            "(= x (op (op d d) d))",
+            "(= x (op d (op d d)))",
+            "(= x (op (op d d) (op d d)))",
         ])
 
 class CombiningLikeTerms(EquationsDomainFromTemplates):
@@ -266,11 +266,12 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
                 rational = r'-?\d+(/\d+)?'
                 patterns = [
                     fr'\(= answer {rational}\)',
+                    fr'\(= answer x\)',
                     fr'\(= answer \([+-] x {rational}\)\)',  # x + k
                     fr'\(= answer \(\* {rational} x\)\)',  # k * x
                     fr'\(= answer \(/ x {rational}\)\)',  # x / k
-                    fr'\(= answer \([+-] (\* {rational} x\) {rational})\)',  # a*x +- b
-                    fr'\(= answer \([+-] (/ x {rational}) {rational})\)',  # x/k +- b
+                    fr'\(= answer \([+-] \(\* {rational} x\) {rational}\)\)',  # a*x +- b
+                    fr'\(= answer \([+-] \(/ x {rational}\) {rational}\)\)',  # x/k +- b
                 ]
                 for pattern in patterns:
                     m = re.match(pattern, val)
