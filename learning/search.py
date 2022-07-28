@@ -403,7 +403,7 @@ def run_search_on_batch(domain, seeds, utility_fn, algorithm, max_nodes, max_dep
 
 
 def run_utility_function(domain, seeds, model_path, device, algorithm, output_path,
-                         debug, max_nodes=400, max_depth=20, rerank_top_k=500):
+                         debug, max_nodes=400, max_depth=20, rerank_top_k=200):
     if model_path is not None:
         m = torch.load(model_path, map_location=device)
         m.to(device)
@@ -433,7 +433,7 @@ def main(cfg: DictConfig):
                              cfg.algorithm,
                              to_absolute_path(cfg.output),
                              cfg.get('debug'),
-                             max_nodes=1000,
+                             max_nodes=200,
                              max_depth=20)
     else:
         raise ValueError(f'Unknown command {cfg.task}')
