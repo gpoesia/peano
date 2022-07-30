@@ -284,18 +284,20 @@ impl Derivation {
             }
 
             /* Lambda evaluation */
-            let evaluated_term = val.eval(&self.context_);
-            if evaluated_term != *val {
-                new_terms.push(Definition {
-                    dtype: Rc::new(Term::Application {
-                        function: Rc::new(Term::Atom { name: String::from("=") }),
-                        arguments: vec![val.clone(), evaluated_term.clone()],
-                    }),
-                    value: Some(Rc::new(Term::Application {
-                        function: Rc::new(Term::Atom { name: String::from("eval") }),
-                        arguments: vec![Rc::new(Term::Atom { name: obj_name.clone() })],
-                    }))
-                });
+            if !self.is_builtin_application(val) {
+                let evaluated_term = val.eval(&self.context_);
+                if evaluated_term != *val {
+                    new_terms.push(Definition {
+                        dtype: Rc::new(Term::Application {
+                            function: Rc::new(Term::Atom { name: String::from("=") }),
+                            arguments: vec![val.clone(), evaluated_term.clone()],
+                        }),
+                        value: Some(Rc::new(Term::Application {
+                            function: Rc::new(Term::Atom { name: String::from("eval") }),
+                            arguments: vec![Rc::new(Term::Atom { name: obj_name.clone() })],
+                        }))
+                    });
+                }
             }
         }
     }
