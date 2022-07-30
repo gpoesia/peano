@@ -217,6 +217,7 @@ class EquationsDomainFromTemplates(EquationsDomain):
 
     def generate_derivation(self, seed: int):
         random.seed(seed)
+        np.random.seed(seed)
 
         template = random.choice(self.templates)
         sexp, _ = parse_sexp(template)
