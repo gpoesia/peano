@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 
-import torch
 import math
 import random
 
+import torch
+import wandb
+from omegaconf import DictConfig, OmegaConf, open_dict
+
+
+PAD = 0
+BOS = 1
+EOS = 2
+POSITIVE = ord(';')
+NEGATIVE = ord('$')
+EMPTY = '\x03'
 
 def count_parameters(model):
     return sum(math.prod(p.shape) for p in model.parameters())
@@ -20,6 +30,24 @@ def format_parameter_count(model):
         return f'{n / 10**6:.1f}M'
 
     return f'{n / 10**6:.1f}B'
+
+
+def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torch.LongTensor:
+    if not b:
+        return torch.tensor([], dtype=torch.long, device=device)
+
+    max_len = max(map(len, b))
+
+    return torch.tensor([[BOS] * bos +
+                         list(map(ord, o)) +
+                         [EOS] * eos +
+                         [PAD] * (max_len - len(o))
+                         for o in b],
+                        dtype=torch.long,
+                        device=device)
+
+def decode_batch(b: torch.LongTensor) -> list[str]:
+    return [''.join(chr(c) for c in row if c > EOS) for row in b]
 
 
 def sample_batch(examples: list[str], batch_size: int) -> list[str]:
@@ -142,3 +170,15 @@ def choose_from_list(prompt, l, to_str=str):
         print(f'{i:2d} - ', to_str(e))
 
     return l[int(input('> '))]
+
+
+def setup_wandb(cfg: DictConfig):
+    if cfg.job.get("wandb_project"):
+        with open_dict(cfg.job):
+            cfg.job.cwd = os.getcwd()
+        wandb.init(
+                project=cfg.job.wandb_project,
+                config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
+    else:
+        # Disable wandb (i.e., make log() a no-op).
+        wandb.log = lambda *args, **kwargs: None

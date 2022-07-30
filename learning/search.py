@@ -74,11 +74,16 @@ class Solution:
                             actions=self.actions + [(action.arrow, None)],
                             derivation=self.derivation)
         elif action.kind == 'result':
-            derivation = self.derivation.clone()
-            subdefs = derivation.define(f'!step{len(self.results)}', action.definition)
+            if action.definition is None:
+                derivation = self.derivation
+                subdefs = []
+            else:
+                derivation = self.derivation.clone()
+                subdefs = derivation.define(f'!step{len(self.results)}', action.definition)
+
             return Solution(self.problem,
                             self.success,
-                            results=self.results + [self.derivation.value_of(action.definition)],
+                            results=self.results + [action.value],
                             subdefinitions=self.subdefinitions + [subdefs],
                             actions=self.actions,
                             derivation=derivation)
@@ -115,6 +120,8 @@ class Solution:
             return [Action(kind='arrow', arrow=a, value=a) for a in actions]
         else:
             results = self.derivation.apply(self.actions[-1][0])
+            if not results:
+                return [Action(kind='result', definition=None, value='_')]
             return [Action(kind='result',
                            definition=d,
                            value=self.derivation.value_of(d))

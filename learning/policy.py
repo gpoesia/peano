@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 import logging
 import random
-from domain import Domain, EquationsDomain, Problem
+from domain import Domain, EquationsDomain, Problem, make_domain
 from enum import Enum
 
 import torch
@@ -15,7 +15,8 @@ from torch.distributions.categorical import Categorical
 from transformers import ReformerModelWithLMHead, ReformerConfig, GPT2Config, GPT2LMHeadModel
 
 from environment import Universe
-from util import log, softmax, pop_max
+from util import log, softmax, pop_max, encode_batch, decode_batch, PAD, EOS, BOS, POSITIVE, NEGATIVE, EMPTY
+from search import Solution, Action
 
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,6 @@ class Episode:
     actions: list[tuple[str, str]] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
     negative_actions: list[list[str]] = field(default_factory=list)
-    negative_outcomes: list[list[str]] = field(default_factory=list)
     searched_nodes: list[SearchNode] = None
 
 
@@ -83,31 +83,7 @@ class TreeSearchEpisode:
     goal_state: Optional[SearchNode] = None
 
 
-PAD = 0
-BOS = 1
-EOS = 2
-POSITIVE = ord(';')
-NEGATIVE = ord('$')
-EMPTY = '\x03'
-
 EMPTY_OUTCOME_PROBABILITY = 1e-3
-
-def encode_batch(b: list[str], device: torch.device, bos=True, eos=True) -> torch.LongTensor:
-    if not b:
-        return torch.tensor([], dtype=torch.long, device=device)
-
-    max_len = max(map(len, b))
-
-    return torch.tensor([[BOS] * bos +
-                         list(map(ord, o)) +
-                         [EOS] * eos +
-                         [PAD] * (max_len - len(o))
-                         for o in b],
-                        dtype=torch.long,
-                        device=device)
-
-def decode_batch(b: torch.LongTensor) -> list[str]:
-    return [''.join(chr(c) for c in row if c > EOS) for row in b]
 
 def make_updated_universe(universe, definition, name):
     'Returns a clone of `universe` where `definition` is defined with the given name.'
@@ -122,20 +98,20 @@ def recover_episode(problem, final_state, success):
 
     current = final_state
 
-    while current != None:
+    while current is not None:
         states.append(current.state)
 
         # The first action is associated with the second state, so for the
         # first state there's no action preceding it. Thus, `states` is one element
         # larger than the other lists.
         if current.parent is not None:
-            actions.append((current.action, current.outcome))
+            actions.append(current.action.value)
             negative_actions.append(current.negative_actions)
-            negative_outcomes.append(current.negative_outcomes)
 
         current = current.parent
 
     return Episode(problem.description,
+                   problem.goal,
                    success,
                    actions[::-1],
                    states[::-1],
@@ -144,14 +120,12 @@ def recover_episode(problem, final_state, success):
 
 @dataclass
 class BeamElement:
-    universe: object
+    solution: Solution
     state: str
-    action: Optional[str] = None
-    outcome: Optional[str] = None
+    action: Optional[Action] = None
     parent: Optional['BeamElement'] = None
     logprob: float = 0
     negative_actions: list = field(default_factory=list)
-    negative_outcomes: list = field(default_factory=list)
 
     def __str__(self) -> str:
         return f'BeamElement({self.state}, logprob={self.logprob})'
@@ -177,15 +151,16 @@ class Policy(nn.Module):
         'Implements the recurrent rule to update the hidden state.'
         raise NotImplementedError()
 
-    def rollout(self, domain: Domain, problem: Problem,
-                depth: int,
-                temperature: float = 1,
-                beam_size: int = 1,
-                epsilon: float = 0) -> Episode:
+    def beam_search(self, domain: Domain, problem: Problem,
+                    depth: int,
+                    temperature: float = 1,
+                    beam_size: int = 1,
+                    epsilon: float = 0) -> Episode:
 
         with torch.no_grad():
-            beam = [BeamElement(universe=problem.universe, 
-                                state=domain.state(problem.universe),
+            initial_sol = Solution.from_problem(problem)
+            beam = [BeamElement(solution=initial_sol,
+                                state=initial_sol.format(200),
                                 logprob=0.0)]
 
             # Each iteration happens in five stages:
@@ -194,97 +169,60 @@ class Policy(nn.Module):
             # 2- Get an intermediate beam with top state/arrow pairs
             # 3- Score arrow outcomes for each state/arrow in the intermediate beam
             # 4- Filter top outcomes and apply outcome to states to obtain next beam
-            for it in range(depth):
+            for it in range(depth + 1):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f'Beam #{it}:')
                     for e in beam:
                         logger.debug('  %s', e)
 
                 # 0- Check if a solution was found
-                solution = next((s for s in beam if domain.reward(s.universe)), None)
+                done_solution = next((s for s in beam
+                                      if domain.derivation_done(s.solution.derivation)), None)
 
-                if solution is not None:
-                    logger.debug('Solution state: %s', solution)
-                    return recover_episode(problem, solution, True)
+                if done_solution is not None:
+                    logger.debug('Solution state: %s', done_solution)
+                    return recover_episode(problem, done_solution, True)
+
+                if it == depth:
+                    # On the extra iteration, just check if we have a solution, but otherwise
+                    # don't keep expanding nodes.
+                    break
 
                 # epsilon-greedy: pick random actions in this iteration with probability eps.
                 take_random_action = random.random() < epsilon
 
-                # 1- Score arrows for each state in the beam
-                actions = [domain.actions(s) for s in beam]
-                arrow_probabilities = [(self.score_arrows(a, s.state) / temperature).softmax(-1)
-                                       for a, s in zip(actions, beam)]
+                # 1- Expand each node in the beam and score successors.
+                actions = [s.solution.successors(domain) for s in beam]
+                action_probs = [(self.score_arrows([a.value for a in a_i],
+                                                   s.state) / temperature).softmax(-1)
+                                for a_i, s in zip(actions, beam)]
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug('Arrow probabilities:')
                     for i, s in enumerate(beam):
                         logger.debug('  %s => %s', s.state,
-                                     sorted(list(zip(actions[i], arrow_probabilities[i])),
+                                     sorted(list(zip(actions[i], action_probs[i])),
                                             key=lambda aap: aap[1], reverse=True))
 
-                beam = [BeamElement(universe=s.universe,
+                beam = [BeamElement(solution=s.solution,
                                     state=s.state,
                                     action=a,
-                                    outcome=None,
-                                    logprob=s.logprob + log(arrow_probabilities[i][j].item()),
+                                    logprob=s.logprob + log(action_probs[i][j].item()),
                                     parent=s,
-                                    negative_actions=actions[i][:j] + actions[i][j+1:],
-                                    negative_outcomes=None)
+                                    negative_actions=[a.value
+                                                      for a in actions[i][:j] + actions[i][j+1:]])
                         for i, s in enumerate(beam)
                         for j, a in enumerate(actions[i])]
 
-                # 2- Get an intermediate beam with top state/arrow pairs.
+                # 2- Compute next beam
                 if take_random_action:
                     beam = random.sample(beam, k=min(len(beam), beam_size))
                 else:
                     beam = sorted(beam, key=lambda s: -s.logprob)[:beam_size]
 
-                # 3- Score arrow outcomes.
-                outcomes = [s.universe.apply(s.action) for s in beam]
-                outcome_probabilities = [(self.score_outcomes([o.clean_str(s.universe) for o in outs],
-                                                              s.action,
-                                                              s.state) / temperature).softmax(-1)
-                                         for outs, s in zip(outcomes, beam)]
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug('Outcome probabilities:')
-                    for i, s in enumerate(beam):
-                        logger.debug('  %s / %s => %s', s.state, s.action,
-                                     sorted(list(zip(outcomes[i], outcome_probabilities[i])),
-                                            key=lambda oop: oop[1], reverse=True))
-
-                new_beam = []
-                for i, s in enumerate(beam):
-                    # If an arrow did not produce any outcomes, that path would
-                    # simply disappear in the next beam. This would make it possible
-                    # for the beam to get empty (especially likely with a beam size of 1).
-                    # To avoid that, we add the same state with an EMPTY outcome to new_beam
-                    # with a very low probability to penalize it (but it will be picked up
-                    # if it's the only option).
-                    if not outcomes[i]:
-                        outcomes[i].append(EMPTY)
-                        outcome_probabilities[i] = torch.tensor([EMPTY_OUTCOME_PROBABILITY])
-
-                    for j, o in enumerate(outcomes[i]):
-                        u = make_updated_universe(s.universe, o, f'!subd{it}')
-
-                        new_beam.append(BeamElement(
-                            universe=u,
-                            state=domain.state(u),
-                            action=s.action,
-                            outcome=o.clean_str(u) if not isinstance(o, str) else o,
-                            logprob=s.logprob + log(outcome_probabilities[i][j].item()),
-                            parent=s.parent,
-                            negative_actions=s.negative_actions,
-                            negative_outcomes=[o_k.clean_str(u)
-                                               for k, o_k in enumerate(outcomes[i])
-                                               if k != j]))
-
-                # 4- Obtain next beam.
-                if take_random_action:
-                    beam = random.sample(new_beam, k=min(len(new_beam), beam_size))
-                else:
-                    beam = sorted(new_beam, key=lambda s: -s.logprob)[:beam_size]
+                for e in beam:
+                    e.solution = e.solution.push_action(e.action)
+                    e.state = e.solution.format(200)
 
             return recover_episode(problem, beam[0], False)
 
@@ -424,7 +362,7 @@ class RandomPolicy(Policy):
     def next_state(self, state: torch.Tensor, observation: str):
         return state
 
-    def score_arrows(self, arrows: list[str], state: torch.Tensor, goal: str) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
         return torch.rand((len(arrows),))
 
     def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
@@ -474,7 +412,7 @@ class DecisionTransformer(Policy):
                           encode_batch([f';A {action};O {observation}'],
                                        device=state.device, bos=False, eos=False)[0]))
 
-    def score_arrows(self, arrows: list[str], state: str, goal: str) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
         return self._score_continuations(state, goal, '; A ', arrows)
 
     def score_outcomes(self, outcomes: list[str], action: str, state: str, goal: str) -> torch.Tensor:
@@ -810,12 +748,6 @@ class ContrastivePolicy(Policy):
                                                                  positive=a,
                                                                  negatives=episode.negative_actions[i]))
 
-                    if episode.negative_outcomes[i]:
-                        examples.append(ContrastivePolicyExample(type=ExampleType.STATE_OUTCOME,
-                                                                 state=episode.states[i],
-                                                                 positive=o,
-                                                                 negatives=episode.negative_outcomes[i]))
-
             for i, s in enumerate(episode.states):
                 value = (0 if not episode.success
                          else self.discount ** (len(episode.states) - (i + 1)))
@@ -881,27 +813,33 @@ def make_policy(config):
 if __name__ == '__main__':
     import environment
     from omegaconf import DictConfig, OmegaConf
-    d = EquationsDomain()
+    d = make_domain('comb-like')
 
     cfg = DictConfig({'reformer': {'hidden_size': 256,
                                    'n_hidden_layers': 1,
                                    'n_attention_heads': 1},
-                      'gru': {'hidden_size': 256,
+                      'gru': {'hidden_size': 64,
                               'embedding_size': 64,
                               'layers': 2},
+                      'discard_unsolved': True,
                       'batch_size': 512})
 
     # policy = DecisionTransformer(cfg, arrows)
     # policy = DecisionGRU(cfg)
-    policy = ContrastivePolicy(cfg)
-    policy = policy.to(torch.device(1))
+    # policy = ContrastivePolicy(cfg)
+    policy = RandomPolicy(cfg)
+    # policy = policy.to(torch.device(1))
     policy.eval()
 
-    problem = d.make_problem('(= (* x 2) 3)')
+    problem = d.generate_derivation(2)
 
     import time
     before = time.time()
-    episode = policy.rollout(d, problem, depth=10, beam_size=10)
+
+    # logging.basicConfig(level=logging.DEBUG)
+
+    episode = policy.beam_search(d, problem, depth=8, beam_size=5000)
     print(time.time() - before)
 
-    # print('Episode:', episode)
+    print('Episode:', episode)
+    print('Last state length:', len(episode.states[-1]))

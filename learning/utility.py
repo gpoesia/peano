@@ -15,8 +15,7 @@ from tqdm import tqdm
 from omegaconf import DictConfig
 
 from episode import ProofSearchEpisode
-from policy import encode_batch
-from main import setup_wandb
+from util import encode_batch, setup_wandb
 
 
 logger = logging.getLogger(__name__)
