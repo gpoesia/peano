@@ -18,29 +18,29 @@ from domain import make_domain
 from utility import GRUUtilityFunction, LengthUtilityFunction, TwoStageUtilityFunction
 from util import get_device
 from episode import ProofSearchEpisode
-from search import SearcherAgent, SearcherResults, run_utility_function
+from search import SearcherAgent, SearcherResults, run_search_on_batch, load_search_model
+from policy import ContrastivePolicy, RandomPolicy
 
 
 logger = logging.getLogger(__name__)
 
 
 def spawn_searcher(rank, iteration, domain, max_nodes, max_depth,
-                   rerank_top_k, model_path, seeds, gpu):
+                   rerank_top_k, model_type, model_path, seeds, device):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
+
+    m = load_search_model(model_type, model_path, device)
 
     if os.path.exists(out_path):
         with open(out_path, 'rb') as f:
             return pickle.load(f)
 
-    if model_path is not None:
-        device = torch.device(gpu)
-        m = torch.load(model_path, map_location=device).to(device)
-        m.eval()
-        h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=rerank_top_k)
-    else:
-        h = LengthUtilityFunction()
+    algorithm = ('policy-beam-search'
+                 if model_type == 'contrastive-policy'
+                 else 'best-first-search')
 
-    agent = SearcherAgent(make_domain(domain), h, max_nodes, max_depth)
+    agent = SearcherAgent(make_domain(domain), m, max_nodes, max_depth,
+                          algorithm=algorithm)
 
     episodes = agent.run_batch(seeds)
 
@@ -60,6 +60,8 @@ class TrainerAgent:
         self.rerank_top_k = config.rerank_top_k
         self.max_nodes = config.max_nodes
         self.max_depth = config.max_depth
+        self.model_type = config.model.type
+        self.algorithm = config.algorithm
         self.train_domains = config.train_domains
         self.eval_domains = config.eval_domains
         self.config = config
@@ -91,10 +93,13 @@ class TrainerAgent:
         else:
             episodes, episodes_iteration = [], -1
 
-        device = get_device(self.config.gpus[-1])
+        device = get_device(self.config.get('gpus') and self.config.gpus[-1])
 
         if last_checkpoint is None:
-            m = GRUUtilityFunction(self.config.utility)
+            if self.config.model.type == 'utility':
+                m = GRUUtilityFunction(self.config.model)
+            elif self.config.model.type == 'contrastive-policy':
+                m = ContrastivePolicy(self.config.model)
         else:
             print('Loading', last_checkpoint)
             m = torch.load(last_checkpoint, map_location=device)
@@ -104,6 +109,11 @@ class TrainerAgent:
 
     def get_train_domain(self, it: int):
         return self.train_domains[min(it, len(self.train_domains) - 1)]
+
+    def _get_searcher_device(self, searcher_index: int):
+        if 'gpus' in self.config:
+            return self.config.gpus[:-1][searcher_index % (len(self.config.gpus) - 1)]
+        return 'cpu'
 
     def learn(self, seeds, eval_seeds):
         m, iteration, last_checkpoint, episodes, ep_it = self.start()
@@ -130,9 +140,10 @@ class TrainerAgent:
                                 max_nodes=self.max_nodes,
                                 max_depth=self.max_depth,
                                 rerank_top_k=self.rerank_top_k,
+                                model_type=self.model_type,
                                 model_path=last_checkpoint,
                                 seeds=random.choices(seeds, k=self.batch_size),
-                                gpu=self.config.gpus[:-1][j % (len(self.config.gpus) - 1)],
+                                device=self._get_searcher_device(j),
                             )
                         )
                     # Evaluate the current agent.
@@ -140,15 +151,15 @@ class TrainerAgent:
 
                     for d in self.eval_domains:
                         if not os.path.exists(f'eval-episodes-{d}-{it}.pkl'):
-                            eval_results = run_utility_function(
+                            eval_results = run_search_on_batch(
                                 make_domain(d),
                                 eval_seeds,
-                                last_checkpoint,
-                                get_device(self.config.gpus[-1]),
-                                f'eval-episodes-{d}-{it}.pkl',
+                                m,
+                                self.algorithm,
+                                self.max_nodes,
+                                self.max_depth,
+                                output_path=f'eval-episodes-{d}-{it}.pkl',
                                 debug=False,
-                                max_depth=self.max_depth,
-                                rerank_top_k=self.rerank_top_k,
                             )
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
@@ -181,7 +192,6 @@ def main(cfg: DictConfig):
     if cfg.task == 'train':
         setup_wandb(cfg)
 
-        domain = make_domain(cfg.trainer.domain)
         seeds = range(*cfg.train_interval)
         eval_seeds = range(*cfg.eval_interval)
 

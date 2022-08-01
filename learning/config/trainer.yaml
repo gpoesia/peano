@@ -1,7 +1,7 @@
 task: train
 
 train_interval: [500, 1000000]
-eval_interval: [0, 200]
+eval_interval: [0, 3]
 
 trainer:
     train_domains:
@@ -20,17 +20,24 @@ trainer:
     iterations: 10
     batch_size: 500
     n_searchers: 5
-    max_depth: 200
+    max_depth: 10
+    max_nodes: 200
     rerank_top_k: 200
+    algorithm: 'policy-beam-search'
 
-    utility:
+    model:
+        type: contrastive-policy
+        discard_unsolved: true
+
         gru:
             embedding_size: 64
             hidden_size: 256
             layers: 2
-        n_epochs: 20
-        batch_size: 512
-        lr: 0.00001
+
+        epochs: 20
+        batch_size: 8
+        lr: 0.000001
+
         interaction: dot-product
         normalize: true
 

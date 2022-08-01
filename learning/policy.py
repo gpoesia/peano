@@ -13,13 +13,20 @@ from torch import nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 from transformers import ReformerModelWithLMHead, ReformerConfig, GPT2Config, GPT2LMHeadModel
+import wandb
+from tqdm import tqdm
 
 from environment import Universe
 from util import log, softmax, pop_max, encode_batch, decode_batch, PAD, EOS, BOS, POSITIVE, NEGATIVE, EMPTY
-from search import Solution, Action
+from solution import Solution, Action
 
 
 logger = logging.getLogger(__name__)
+
+
+# Left-truncate states to have at most this number of characters.
+# This is to avoid overly large inputs to the state embedding model.
+MAX_STATE_LENGTH = 200
 
 
 @dataclass
@@ -66,7 +73,7 @@ class SearchNode:
 
 @dataclass
 class Episode:
-    initial_observation: str
+    problem: str
     goal: str = None
     success: bool = False
     actions: list[tuple[str, str]] = field(default_factory=list)
@@ -83,6 +90,19 @@ class TreeSearchEpisode:
     goal_state: Optional[SearchNode] = None
 
 
+@dataclass
+class BeamElement:
+    solution: Solution
+    state: str
+    action: Optional[Action] = None
+    parent: Optional['BeamElement'] = None
+    logprob: float = 0
+    negative_actions: list = field(default_factory=list)
+
+    def __str__(self) -> str:
+        return f'BeamElement({self.state}, logprob={self.logprob})'
+
+
 EMPTY_OUTCOME_PROBABILITY = 1e-3
 
 def make_updated_universe(universe, definition, name):
@@ -93,7 +113,7 @@ def make_updated_universe(universe, definition, name):
     u.define(name, definition)
     return u
 
-def recover_episode(problem, final_state, success):
+def recover_episode(problem, final_state: BeamElement, success) -> Episode:
     states, actions, negative_actions, negative_outcomes = [], [], [], []
 
     current = final_state
@@ -115,20 +135,7 @@ def recover_episode(problem, final_state, success):
                    success,
                    actions[::-1],
                    states[::-1],
-                   negative_actions[::-1],
-                   negative_outcomes[::-1])
-
-@dataclass
-class BeamElement:
-    solution: Solution
-    state: str
-    action: Optional[Action] = None
-    parent: Optional['BeamElement'] = None
-    logprob: float = 0
-    negative_actions: list = field(default_factory=list)
-
-    def __str__(self) -> str:
-        return f'BeamElement({self.state}, logprob={self.logprob})'
+                   negative_actions[::-1])
 
 
 class Policy(nn.Module):
@@ -160,15 +167,13 @@ class Policy(nn.Module):
         with torch.no_grad():
             initial_sol = Solution.from_problem(problem)
             beam = [BeamElement(solution=initial_sol,
-                                state=initial_sol.format(200),
+                                state=initial_sol.format(MAX_STATE_LENGTH),
                                 logprob=0.0)]
 
-            # Each iteration happens in five stages:
+            # Each iteration happens in 3 stages:
             # 0- Check if a solution was found
-            # 1- Score arrows for each state in the beam
-            # 2- Get an intermediate beam with top state/arrow pairs
-            # 3- Score arrow outcomes for each state/arrow in the intermediate beam
-            # 4- Filter top outcomes and apply outcome to states to obtain next beam
+            # 1- Score actions for each state in the beam
+            # 2- Rerank and apply outcome to states to obtain next beam
             for it in range(depth + 1):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f'Beam #{it}:')
@@ -222,7 +227,7 @@ class Policy(nn.Module):
 
                 for e in beam:
                     e.solution = e.solution.push_action(e.action)
-                    e.state = e.solution.format(200)
+                    e.state = e.solution.format(MAX_STATE_LENGTH)
 
             return recover_episode(problem, beam[0], False)
 
@@ -696,9 +701,14 @@ class ContrastivePolicy(Policy):
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         self.discard_unsolved = config.discard_unsolved
+
         # Truncate states/actions to avoid OOMs.
-        self.max_len = 300
+        self.max_len = MAX_STATE_LENGTH
         self.discount = 0.99
+        self.batch_size = config.batch_size
+        self.lr = config.lr
+        self.epochs = config.epochs
+
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
         if len(arrows) <= 1:
@@ -733,14 +743,14 @@ class ContrastivePolicy(Policy):
     def get_device(self):
         return self.embedding.weight.device
 
-    def extract_examples(self, episode) -> list[str]:
+    def extract_examples(self, episode) -> list[ContrastivePolicyExample]:
         examples = []
 
         if not episode.success and self.discard_unsolved:
             return examples
 
         if isinstance(episode, Episode):
-            for i, (a, o) in enumerate(episode.actions):
+            for i, a in enumerate(episode.actions):
                 if episode.success:
                     if episode.negative_actions[i]:
                         examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
@@ -765,19 +775,12 @@ class ContrastivePolicy(Policy):
     def get_loss(self, batch) -> torch.Tensor:
         losses = []
 
-        # HACK: This can be vectorized & batched, but it will be more complicated. This
-        # simple implementation lets us just test out the architecture.
+        # HACK: This can be vectorized & batched, but it will be more complicated because
+        # the number of classes is different for each contrastive example in the batch.
         for e in batch:
             if e.type == ExampleType.STATE_ACTION:
-                p = self.score_arrows([e.positive] + e.negatives, e.state).softmax(-1)
-                y = torch.zeros_like(p)
-                y[0] = 1
-                losses.append(F.binary_cross_entropy(p, y))
-            elif e.type == ExampleType.STATE_OUTCOME:
-                p = self.score_outcomes([e.positive] + e.negatives, None, e.state).softmax(-1)
-                y = torch.zeros_like(p)
-                y[0] = 1
-                losses.append(F.binary_cross_entropy(p, y))
+                p = self.score_arrows([e.positive] + e.negatives, e.state)
+                losses.append(F.cross_entropy(p, torch.tensor(0)))
             elif e.type != ExampleType.STATE_VALUE:
                 raise ValueError(f'Unknown example type {e.type}')
 
@@ -796,6 +799,30 @@ class ContrastivePolicy(Policy):
         input = self.embedding(input.transpose(0, 1))
         output, _ = self.lm(input)
         return output[0, :, :]
+
+    def fit(self, dataset: list[Episode], checkpoint_callback=lambda: None):
+        self.train()
+
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+
+        # Assemble contrastive examples
+        examples = []
+        for episode in dataset:
+            examples.extend(self.extract_examples(episode))
+
+        for e in range(self.epochs):
+            wandb.log({'epoch': e})
+
+            for i in tqdm(examples):
+                optimizer.zero_grad()
+                batch = random.sample(examples, k=min(len(examples), self.batch_size))
+                loss = self.get_loss(batch)
+                loss.backward()
+                optimizer.step()
+
+                wandb.log({'train_loss': loss.cpu()})
+
+            checkpoint_callback()
 
 
 def make_policy(config):
@@ -838,7 +865,7 @@ if __name__ == '__main__':
 
     # logging.basicConfig(level=logging.DEBUG)
 
-    episode = policy.beam_search(d, problem, depth=8, beam_size=5000)
+    episode = policy.beam_search(d, problem, depth=8, beam_size=10)
     print(time.time() - before)
 
     print('Episode:', episode)
