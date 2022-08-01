@@ -19,10 +19,11 @@ from util import choose_from_list, parse_sexp, format_sexp, randomize_atoms
 
 # Representing an existential type: each domain has /some/ associated problem type.
 class Problem:
-    def __init__(self, universe: peano.PyUniverse, description: str, goal: str):
+    def __init__(self, universe: peano.PyUniverse, description: str, goal: str, domain: 'Domain'):
         self.universe = universe
         self.description = description
         self.goal = goal
+        self.domain = domain
 
 
 class Domain:
@@ -128,12 +129,12 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
     def make_problem(self, equation: str, goal: str):
         u = self.base_universe.clone()
         u.incorporate(f'equation: {equation}.')
-        return Problem(u, equation, goal)
+        return Problem(u, equation, goal, self)
 
     def start_derivation(self, equation: str, goal: str):
         u = self.base_derivation.clone()
         u.incorporate(f'equation: {equation}.')
-        return Problem(u, equation, goal)
+        return Problem(u, equation, goal, self)
 
     def reward(self, universe: peano.PyUniverse) -> bool:
         'Try to find a rational in the equivalence class of x'
@@ -357,7 +358,7 @@ n : nat.
     def start_derivation(self, equation: str, goal: str):
         u = self.base_derivation.clone()
         u.incorporate(f'equation: {equation}.')
-        return Problem(u, equation, goal)
+        return Problem(u, equation, goal, self)
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to an equality between n and a reduced natural number.'

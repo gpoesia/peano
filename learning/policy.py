@@ -182,7 +182,7 @@ class Policy(nn.Module):
 
                 # 0- Check if a solution was found
                 done_solution = next((s for s in beam
-                                      if domain.derivation_done(s.solution.derivation)), None)
+                                      if problem.domain.derivation_done(s.solution.derivation)), None)
 
                 if done_solution is not None:
                     logger.debug('Solution state: %s', done_solution)
