@@ -29,7 +29,7 @@ def spawn_searcher(rank, iteration, domain, max_nodes, max_depth,
                    rerank_top_k, model_type, model_path, seeds, device):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
 
-    m = load_search_model(model_type, model_path, device)
+    m = load_search_model(model_type, model_path, device=device)
 
     if os.path.exists(out_path):
         with open(out_path, 'rb') as f:
