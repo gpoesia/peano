@@ -1,7 +1,7 @@
 task: train
 
 train_interval: [500, 1000000]
-eval_interval: [0, 3]
+eval_interval: [0, 200]
 
 trainer:
     train_domains:
@@ -36,7 +36,7 @@ trainer:
 
         epochs: 20
         batch_size: 8
-        lr: 0.000001
+        lr: 0.0000001
 
         interaction: dot-product
         normalize: true
