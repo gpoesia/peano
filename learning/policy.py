@@ -158,7 +158,8 @@ class Policy(nn.Module):
         'Implements the recurrent rule to update the hidden state.'
         raise NotImplementedError()
 
-    def beam_search(self, domain: Domain, problem: Problem,
+    def beam_search(self,
+                    problem: Problem,
                     depth: int,
                     temperature: float = 1,
                     beam_size: int = 1,
@@ -197,7 +198,7 @@ class Policy(nn.Module):
                 take_random_action = random.random() < epsilon
 
                 # 1- Expand each node in the beam and score successors.
-                actions = [s.solution.successors(domain) for s in beam]
+                actions = [s.solution.successors(problem.domain) for s in beam]
                 action_probs = [(self.score_arrows([a.value for a in a_i],
                                                    s.state) / temperature).softmax(-1)
                                 for a_i, s in zip(actions, beam)]

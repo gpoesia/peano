@@ -384,7 +384,6 @@ class SearcherAgent:
                     )
                 elif self.algorithm == 'policy-beam-search':
                     episode = self.model.beam_search(
-                        self.domain,
                         problem,
                         depth=self.max_depth,
                         beam_size=math.ceil(self.max_nodes / self.max_depth))
