@@ -28,6 +28,7 @@ trainer:
     model:
         type: contrastive-policy
         discard_unsolved: true
+        train_value_function: false
 
         gru:
             embedding_size: 64

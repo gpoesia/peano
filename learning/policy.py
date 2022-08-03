@@ -702,6 +702,7 @@ class ContrastivePolicy(Policy):
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         self.discard_unsolved = config.discard_unsolved
+        self.train_value_function = config.train_value_function
 
         # Truncate states/actions to avoid OOMs.
         self.max_len = MAX_STATE_LENGTH
@@ -759,12 +760,13 @@ class ContrastivePolicy(Policy):
                                                                  positive=a,
                                                                  negatives=episode.negative_actions[i]))
 
-            for i, s in enumerate(episode.states):
-                value = (0 if not episode.success
-                         else self.discount ** (len(episode.states) - (i + 1)))
-                examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
-                                                         state=episode.states[i],
-                                                         value=value))
+            if self.train_value_function:
+                for i, s in enumerate(episode.states):
+                    value = (0 if not episode.success
+                             else self.discount ** (len(episode.states) - (i + 1)))
+                    examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
+                                                             state=episode.states[i],
+                                                             value=value))
         elif isinstance(episode, TreeSearchEpisode):
             for node in episode.visited:
                 examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
