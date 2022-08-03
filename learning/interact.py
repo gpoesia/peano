@@ -14,7 +14,7 @@ from environment import *
 import util
 from util import choose_from_list
 from domain import EquationsDomain, make_domain
-from policy import encode_batch, decode_batch, EOS
+from policy import encode_batch, decode_batch, EOS, Episode as PolicyEpisode
 from search import batched_forward_search, ProofSearchEpisode
 
 
@@ -238,13 +238,13 @@ def print_solutions(path, min_length=0):
     print(f'{len(solved_episodes)}/{len(episodes)} solutions.')
 
     for e in solved_episodes:
-        print(f'### {e.problem} - {len(e.solution)} steps')
+        print(f'### {e.problem} - {len(e.actions) // 2} steps')
 
-        if len(e.solution) < min_length:
+        if len(e.actions) < min_length:
             continue
 
-        for i, step in enumerate(e.solution):
-            print(f'{i:02d}. {step}')
+        for i, (axiom, result) in enumerate(zip(e.actions[::2], e.actions[1::2])):
+            print(f'{i:02d}. {result} by {axiom}')
 
         print('###\n\n')
 
@@ -257,8 +257,7 @@ if __name__ == '__main__':
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
-    parser.add_argument('--print', help='Pretty print solved episodes.',
-                        type=str)
+    parser.add_argument('--print', help='Pretty print solved episodes from the given pickle file.', type=str)
     parser.add_argument('--derivation', help='Solve a problem manually', action='store_true')
     parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
