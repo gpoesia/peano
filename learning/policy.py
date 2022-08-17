@@ -709,7 +709,7 @@ class ContrastivePolicy(Policy):
         self.discount = 0.99
         self.batch_size = config.batch_size
         self.lr = config.lr
-        self.epochs = config.epochs
+        self.gradient_steps = config.gradient_steps
 
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
@@ -813,17 +813,14 @@ class ContrastivePolicy(Policy):
         for episode in dataset:
             examples.extend(self.extract_examples(episode))
 
-        for e in range(self.epochs):
-            wandb.log({'epoch': e})
+        for e in range(self.gradient_steps):
+            optimizer.zero_grad()
+            batch = random.sample(examples, k=min(len(examples), self.batch_size))
+            loss = self.get_loss(batch)
+            loss.backward()
+            optimizer.step()
 
-            for i in tqdm(examples):
-                optimizer.zero_grad()
-                batch = random.sample(examples, k=min(len(examples), self.batch_size))
-                loss = self.get_loss(batch)
-                loss.backward()
-                optimizer.step()
-
-                wandb.log({'train_loss': loss.cpu()})
+            wandb.log({'train_loss': loss.cpu()})
 
             checkpoint_callback()
 

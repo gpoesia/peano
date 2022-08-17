@@ -35,7 +35,7 @@ trainer:
             hidden_size: 256
             layers: 2
 
-        epochs: 20
+        gradient_steps: 4096
         batch_size: 8
         lr: 0.0005
 
