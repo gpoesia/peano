@@ -45,6 +45,8 @@ class Solution:
                             actions=self.actions + [(action.arrow, None)],
                             derivation=self.derivation)
         elif action.kind == 'result':
+            # TODO: To support tactics, which might define a list of results in a single shot,
+            # action.definition should be made a list.
             if action.definition is None:
                 derivation = self.derivation
                 subdefs = []
