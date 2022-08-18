@@ -6,7 +6,7 @@ use pyo3::Python;
 use rand::Rng;
 use rand_pcg::Pcg64;
 
-use crate::universe::{Context, Universe, EGraphUniverse, Derivation, Definition};
+use crate::universe::{Context, Universe, EGraphUniverse, Derivation, Definition, Term};
 use crate::domain::{new_rng, Domain, Blank, Equations};
 
 #[pyclass(unsendable)]
@@ -58,6 +58,18 @@ impl PyDefinition {
 
     pub fn generating_action(&self) -> &str {
         &self.action
+    }
+
+    pub fn generating_arguments(&self) -> Option<Vec<String>> {
+        match &self.def.value {
+            Some(v) => match v.as_ref() {
+                Term::Application { function: _, arguments } => {
+                    Some(arguments.iter().map(|v| v.to_string()).collect())
+                },
+                _ => None,
+            },
+            None => None,
+        }
     }
 
     pub fn dependencies(&self) -> Vec<String> {
@@ -183,6 +195,10 @@ impl PyDerivation {
     pub fn apply(&self, action: String) -> Vec<PyDefinition> {
         self.universe.application_results(&action)
             .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
+    }
+
+    pub fn next_id(&mut self) -> usize {
+        self.universe.next_term_id()
     }
 
     pub fn apply_all(&self, actions: Vec<String>) -> Vec<PyDefinition> {

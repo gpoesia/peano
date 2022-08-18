@@ -45,7 +45,7 @@ impl Derivation {
         self.context_.insertion_order.len()
     }
 
-    fn next_term_id(&mut self) -> usize {
+    pub fn next_term_id(&mut self) -> usize {
         self.next_id += 1;
         self.next_id
     }
