@@ -7,6 +7,24 @@ import unittest
 import peano
 
 
+def next_parameter_name(n: int):
+    'Returns the n-th parameter name of a tactic.'
+    name = []
+
+    while n or not name:
+        name.append(chr(ord('a') + (n % 26)))
+        n = n // 26
+
+    return f'?{"".join(name)}'
+
+
+def is_result_name(name: str):
+    return name.startswith('?') and name[1:].isdigit()
+
+def is_parameter_name(name: str):
+    return name.startswith('?') and name[1:].isalpha()
+
+
 @dataclass
 class Step:
     'Represents one step in a tactic.'
@@ -18,7 +36,11 @@ class Step:
         'Replace all occurrences of an argument by another.'
         return Step(self.arrow,
                     [after if x == before else x for x in self.arguments],
-                    self.result)
+                    after if self.result == before else self.result)
+
+    def __str__(self):
+        return f'{self.result} <- {self.arrow} {", ".join(self.arguments)}'
+
 
 @dataclass
 class Trace:
@@ -38,17 +60,52 @@ class Tactic:
         self.steps = steps
         self.name = name
 
-    def generalize(self, t: 'Tactic') -> Optional['Tactic']:
+    def __str__(self):
+        return f'{self.name}:\n' + '\n'.join(map(str, self.steps))
+
+    def generalize(self, t: 'Tactic', lgg_name: str) -> Optional['Tactic']:
         'Returns a tactic that generalizes self and t, if possible.'
 
-        # Sketch:
-        # 1- If any step applies a different arrow, return None
-        # 2- For each step, try to unify their arguments.
-        #    - Two equal arguments => identity
-        #    - Two different concrete arguments ==> make a new parameter
-        #    - Two different parameters: return None
+        if len(self.steps) != len(t.steps):
+            return None
 
-        raise NotImplementedError()
+        params_to_lgg = {}
+        lgg_steps = []
+
+        for s1, s2 in zip(self.steps, t.steps):
+            if s1.arrow != s2.arrow:
+                return None
+
+            assert s1.result == s2.result, \
+                "Results should be consistently named after their indices."
+
+            unified_args = []
+
+            for a1, a2 in zip(s1.arguments, s2.arguments):
+                # If they're both equal arguments that are not parameter names, no need
+                # to generalize, just reuse the same value. Does not hold for parameters
+                # since we want to make sure we'll always use parameters introduced in the lgg,
+                # and even if there's a parameter with the same role and same name in both
+                # tactics, we might have already used that name for something else in the lgg.
+                # The cases below will then make a fresh name that will functionally map
+                # to this common parameter in params_to_lgg.
+                # For example, we could have params_to_lgg[('?b', '?b')] = '?d'
+                # if ?d is the lgg parameter that corresponds to '?b' in both tactics.
+                if a1 == a2 and not is_parameter_name(a1):
+                    unified_args.append(a1)
+                elif (a1, a2) in params_to_lgg:
+                    # If we already have a parameter that is instantiated to a1 in self
+                    # and to a2 in t, reuse it.
+                    unified_args.append(params_to_lgg[(a1, a2)])
+                else:
+                    # Otherwise, need to make a new parameter.
+                    name = next_parameter_name(len(params_to_lgg))
+                    params_to_lgg[(a1, a2)] = name
+                    unified_args.append(name)
+
+            lgg_steps.append(Step(s1.arrow, unified_args, s1.result))
+
+        return Tactic(lgg_name, lgg_steps)
 
     def execute(self, u: peano.PyUniverse) -> list[peano.PyDefinition]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
@@ -111,9 +168,6 @@ class Tactic:
 
         return assignments
 
-    def _execute_step(self, u: peano.PyUniverse, trace: list[peano.PyDefinition]):
-        raise NotImplementedError()
-
 
 class TacticsTest(unittest.TestCase):
     def test_eval_rewrite_tactic(self):
@@ -139,3 +193,29 @@ class TacticsTest(unittest.TestCase):
         # And its last definition should be a proof that (= x 6).
         assert (traces[0].definitions[-1][1]
                 .clean_dtype(traces[0].universe) == '(= x 6)')
+
+    def test_generalize_tactic(self):
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['!sub1'], '?0'),
+                Step('rewrite', ['?0', '!sub2'], '?1'),
+                Step('eval', ['!sub48'], '?2'),
+                Step('rewrite', ['?2', '?1'], '?3'),
+            ]
+        )
+
+        t2 = Tactic(
+            't1',
+            [
+                Step('eval', ['!sub19'], '?0'),
+                Step('rewrite', ['?0', '!sub42'], '?1'),
+                Step('eval', ['!sub25'], '?2'),
+                Step('rewrite', ['?2', '?1'], '?3'),
+            ]
+        )
+
+        lgg = t1.generalize(t2, 't1+t2')
+
+        assert lgg is not None
+        print(lgg)
