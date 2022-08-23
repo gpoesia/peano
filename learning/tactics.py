@@ -5,6 +5,7 @@ from typing import Optional
 from dataclasses import dataclass
 import unittest
 import pickle
+from functools import cached_property
 
 import hydra
 from omegaconf import DictConfig
@@ -78,6 +79,15 @@ class Tactic:
     def __hash__(self):
         return hash(self.steps)
 
+    @cached_property
+    def number_of_steps(self):
+        return len(self.steps)
+
+    @cached_property
+    def number_of_parameters(self):
+        return len(set(p for s in self.steps for p in s.arguments
+                       if is_parameter_name(p)))
+
     def __eq__(self, rhs: 'Tactic'):
         '''Returns whether the two tactics are identical modulo their names.
         Note that this is not testing for alpha-equivalence.'''
@@ -98,7 +108,7 @@ class Tactic:
             rewrites[f'!step{start_index + i}'] = result
             steps.append(Step(arrow, [rewrites.get(a, a) for a in args], result))
 
-        return Tactic(name, steps)
+        return Tactic(name, steps).abstract_concrete_arguments()
 
     def is_generalization_of(self, rhs: 'Tactic') -> bool:
         '''Returns whether self is equal to or a more general tactic than rhs.
@@ -131,6 +141,11 @@ class Tactic:
                     return False
 
         return True
+
+    def is_comparable_to(self, rhs: 'Tactic') -> bool:
+        '''Returns whether self and rhs belong to the same lattice with
+        generalize() being the meet operator.'''
+        return  self.is_generalization_of(rhs) or rhs.is_generalization_of(self)
 
 
     def generalize(self, t: 'Tactic', lgg_name: str) -> Optional['Tactic']:
@@ -176,6 +191,37 @@ class Tactic:
             lgg_steps.append(Step(s1.arrow, unified_args, s1.result))
 
         return Tactic(lgg_name, lgg_steps)
+
+    def abstract_concrete_arguments(self) -> 'Tactic':
+        '''Abstracts away concrete arguments in steps of the tactic.
+
+        This tries to create the least number of required formal parameters by
+        reusing parameters, creating at most one parameter for each distinct
+        concrete argument.
+
+        Returns a new, abstracted tactic.
+        '''
+
+        new_steps = []
+
+        parameter_values = {}
+
+        for s in self.steps:
+            new_args = []
+
+            for a in s.arguments:
+                if is_result_name(a):
+                    new_args.append(a)
+                elif a in parameter_values:
+                    new_args.append(parameter_values[a])
+                else:
+                    new_param_name = next_parameter_name(len(parameter_values))
+                    parameter_values[new_param_name] = a
+                    new_args.append(new_param_name)
+
+            new_steps.append(Step(s.arrow, new_args, s.result))
+
+        return Tactic(self.name, new_steps)
 
     def execute(self, u: peano.PyUniverse) -> list[peano.PyDefinition]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
@@ -239,9 +285,9 @@ class Tactic:
         return assignments
 
 
-def induce_tactics(episodes: list[Episode]):
+def induce_tactics(episodes: list[Episode], n: int):
     episodes = [e for e in episodes if e.success]
-    tactics = []
+    tactics_from_slices = []
 
     for i, e in enumerate(episodes):
         arrows, arguments = e.actions[::2], e.arguments[1::2]
@@ -251,13 +297,13 @@ def induce_tactics(episodes: list[Episode]):
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
                                                arguments[start:start+length])
-                tactics.append(t)
+                tactics_from_slices.append(t)
 
-    print(len(tactics), 'tactics from slices.')
+    print(len(tactics_from_slices), 'tactics from slices.')
     lggs = []
 
-    for i, t1 in enumerate(tactics):
-        for t2 in tactics[i+1:]:
+    for i, t1 in enumerate(tactics_from_slices):
+        for t2 in tactics_from_slices[i+1:]:
             lgg = t1.generalize(t2, t1.name)
 
             if lgg is not None:
@@ -267,8 +313,43 @@ def induce_tactics(episodes: list[Episode]):
     lggs = list(set(lggs))
     print(len(lggs), 'unique lggs.')
 
+    scored_lggs = []
+
     for t in lggs:
-        print(t)
+        occurrences = 0
+        for s in tactics_from_slices:
+            if t.is_generalization_of(s):
+                occurrences += 1
+        scored_lggs.append((t, occurrences))
+
+    scored_lggs.sort(key=(lambda ts:
+                          # Occurrences.
+                          ts[1] *
+                          # Number of steps.
+                          ((ts[0].number_of_steps) - 1) /
+                          # Number of parameters.
+                          max(1, ts[0].number_of_parameters)),
+                     reverse=True)
+
+    induced_tactics = [] # t for _, t in scored_lggs[:n]]
+
+    for i in range(n):
+        is_independent = True
+
+        for it in induced_tactics:
+            if it.is_comparable_to(scored_lggs[i][0]):
+                is_independent = False
+                break
+
+        if is_independent:
+            induced_tactics.append(scored_lggs[i][0])
+
+    print(f'Induced {len(induced_tactics)} tactics:')
+
+    for t in induced_tactics:
+        print(f'=== \n', t, '\n', sep='')
+
+    return induced_tactics
 
 
 class TacticsTest(unittest.TestCase):
@@ -367,7 +448,7 @@ def induce(cfg: DictConfig):
         for e in episodes:
             recover_arguments(e, domain)
 
-    induce_tactics(episodes)
+    induce_tactics(episodes, 5)
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="tactics")
