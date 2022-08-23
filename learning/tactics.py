@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 
+import collections
 from typing import Optional
 from dataclasses import dataclass
 import unittest
+import pickle
+
+import hydra
+from omegaconf import DictConfig
 
 import peano
+from domain import Domain, make_domain
+from policy import Episode
 
 
 def next_parameter_name(n: int):
@@ -29,8 +36,13 @@ def is_parameter_name(name: str):
 class Step:
     'Represents one step in a tactic.'
     arrow: str
-    arguments: list[str]
+    arguments: tuple[str]
     result: str
+
+    def __init__(self, arrow: str, arguments: list[str], result: str):
+        object.__setattr__(self, 'arrow', arrow)
+        object.__setattr__(self, 'arguments', tuple(arguments))
+        object.__setattr__(self, 'result', result)
 
     def rewrite(self, before: str, after: str):
         'Replace all occurrences of an argument by another.'
@@ -57,11 +69,14 @@ class Tactic:
     '''
 
     def __init__(self, name: str, steps: list[Step]):
-        self.steps = steps
+        self.steps = tuple(steps)
         self.name = name
 
     def __str__(self):
         return f'{self.name}:\n' + '\n'.join(map(str, self.steps))
+
+    def __hash__(self):
+        return hash(self.steps)
 
     def __eq__(self, rhs: 'Tactic'):
         '''Returns whether the two tactics are identical modulo their names.
@@ -224,6 +239,38 @@ class Tactic:
         return assignments
 
 
+def induce_tactics(episodes: list[Episode]):
+    episodes = [e for e in episodes if e.success]
+    tactics = []
+
+    for i, e in enumerate(episodes):
+        arrows, arguments = e.actions[::2], e.arguments[1::2]
+
+        for start in range(len(arrows) - 1):
+            for length in range(2, len(arrows) - 1 - start):
+                t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
+                                               arrows[start:start+length],
+                                               arguments[start:start+length])
+                tactics.append(t)
+
+    print(len(tactics), 'tactics from slices.')
+    lggs = []
+
+    for i, t1 in enumerate(tactics):
+        for t2 in tactics[i+1:]:
+            lgg = t1.generalize(t2, t1.name)
+
+            if lgg is not None:
+                lggs.append(lgg)
+
+    print(len(lggs), 'lggs.')
+    lggs = list(set(lggs))
+    print(len(lggs), 'unique lggs.')
+
+    for t in lggs:
+        print(t)
+
+
 class TacticsTest(unittest.TestCase):
     def test_eval_rewrite_tactic(self):
         import domain
@@ -287,3 +334,47 @@ class TacticsTest(unittest.TestCase):
         assert t2.is_generalization_of(t2)
 
 
+# HACK: This becomes obsolete for runs that now track arguments, but we
+# need this if they don't.
+def recover_arguments(episode: Episode, domain: Domain):
+    problem = domain.start_derivation(episode.problem, episode.goal)
+    arguments = []
+
+    for i, (arrow, outcome) in enumerate(zip(episode.actions[::2], episode.actions[1::2])):
+        if outcome == '_':
+            arguments.append([])
+            arguments.append([])
+            continue
+
+        choices = problem.universe.apply(arrow)
+        arguments.append([])
+        definitions = [d for d in choices if problem.universe.value_of(d) == outcome]
+
+        assert len(definitions) > 0, "Failed to replay the solution."
+
+        arguments.append(definitions[0].generating_arguments())
+        problem.universe.define(f'!step{i}', definitions[0])
+
+    episode.arguments = arguments
+
+
+def induce(cfg: DictConfig):
+    domain = make_domain(cfg.domain)
+
+    with open(cfg.episodes, 'rb') as f:
+        episodes = pickle.load(f)
+
+        for e in episodes:
+            recover_arguments(e, domain)
+
+    induce_tactics(episodes)
+
+
+@hydra.main(version_base="1.2", config_path="config", config_name="tactics")
+def main(cfg: DictConfig):
+    if cfg.task == 'induce':
+        induce(cfg)
+
+
+if __name__ == '__main__':
+    main()
