@@ -76,7 +76,8 @@ class Episode:
     problem: str
     goal: str = None
     success: bool = False
-    actions: list[tuple[str, str]] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
+    arguments: list[str] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
     negative_actions: list[list[str]] = field(default_factory=list)
     searched_nodes: list[SearchNode] = None
@@ -114,7 +115,7 @@ def make_updated_universe(universe, definition, name):
     return u
 
 def recover_episode(problem, final_state: BeamElement, success) -> Episode:
-    states, actions, negative_actions, negative_outcomes = [], [], [], []
+    states, actions, arguments, negative_actions, negative_outcomes = [], [], [], []
 
     current = final_state
 
@@ -126,6 +127,7 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
         # larger than the other lists.
         if current.parent is not None:
             actions.append(current.action.value)
+            arguments.append(current.action.arguments)
             negative_actions.append(current.negative_actions)
 
         current = current.parent
@@ -134,6 +136,7 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
                    problem.goal,
                    success,
                    actions[::-1],
+                   arguments[::-1],
                    states[::-1],
                    negative_actions[::-1])
 

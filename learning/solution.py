@@ -15,6 +15,8 @@ class Action:
     value: str
 
     arrow: Optional[str] = None
+    arguments: Optional[list[str]] = None
+
     definition: Optional[peano.PyDefinition] = None
 
 
@@ -97,7 +99,8 @@ class Solution:
                 return [Action(kind='result', definition=None, value='_')]
             return [Action(kind='result',
                            definition=d,
-                           value=self.derivation.value_of(d))
+                           value=self.derivation.value_of(d),
+                           arguments=d.generating_arguments())
                     for d in results]
 
 class SolutionTest(unittest.TestCase):
