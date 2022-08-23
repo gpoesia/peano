@@ -25,7 +25,7 @@ def is_parameter_name(name: str):
     return name.startswith('?') and name[1:].isalpha()
 
 
-@dataclass
+@dataclass(eq=True, frozen=True)
 class Step:
     'Represents one step in a tactic.'
     arrow: str
@@ -62,6 +62,61 @@ class Tactic:
 
     def __str__(self):
         return f'{self.name}:\n' + '\n'.join(map(str, self.steps))
+
+    def __eq__(self, rhs: 'Tactic'):
+        '''Returns whether the two tactics are identical modulo their names.
+        Note that this is not testing for alpha-equivalence.'''
+        return self.steps == rhs.steps
+
+    @staticmethod
+    def from_solution_slice(name: str,
+                            start_index: int,
+                            arrows: list[str],
+                            arguments: list[list[str]]) -> 'Tactic':
+        'Constructs a tactic from a slice of a solution found in a search episode.'
+
+        steps = []
+        rewrites = {}
+
+        for i, (arrow, args) in enumerate(zip(arrows, arguments)):
+            result = f'?{i}'
+            rewrites[f'!step{start_index + i}'] = result
+            steps.append(Step(arrow, [rewrites.get(a, a) for a in args], result))
+
+        return Tactic(name, steps)
+
+    def is_generalization_of(self, rhs: 'Tactic') -> bool:
+        '''Returns whether self is equal to or a more general tactic than rhs.
+
+        This happens when, essentially, every result produced by running rhs would
+        also be produced by running self. This defines a partial order on tactics.
+
+        Two tactics are alpha-equivalent iff this returns True for both (a, b) and (b, a).'''
+
+        if len(self.steps) != len(rhs.steps):
+            return False
+
+        # Strategy: try to find an assignment of parameters to self that would
+        # rewrite self into a2. A parameter of self could rewrite into either
+        # a concrete value used by rhs or to one of rhs's parameters.
+        assignment = {}
+
+        for s1, s2 in zip(self.steps, rhs.steps):
+            if s1.arrow != s2.arrow:
+                return False
+
+            for a1, a2 in zip(s1.arguments, s2.arguments):
+                if is_parameter_name(a1):
+                    if a1 in assignment:
+                        if assignment[a1] != a2:
+                            return False
+                    else:
+                        assignment[a1] = a2
+                elif a1 != a2:
+                    return False
+
+        return True
+
 
     def generalize(self, t: 'Tactic', lgg_name: str) -> Optional['Tactic']:
         'Returns a tactic that generalizes self and t, if possible.'
@@ -218,4 +273,17 @@ class TacticsTest(unittest.TestCase):
         lgg = t1.generalize(t2, 't1+t2')
 
         assert lgg is not None
-        print(lgg)
+        assert lgg.is_generalization_of(t1)
+        assert lgg.is_generalization_of(t2)
+        assert lgg.is_generalization_of(lgg)
+
+        assert not t1.is_generalization_of(lgg)
+        assert not t2.is_generalization_of(lgg)
+
+        assert not t1.is_generalization_of(t2)
+        assert not t2.is_generalization_of(t1)
+
+        assert t1.is_generalization_of(t1)
+        assert t2.is_generalization_of(t2)
+
+
