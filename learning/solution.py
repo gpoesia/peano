@@ -17,7 +17,7 @@ class Action:
     arrow: Optional[str] = None
     arguments: Optional[list[str]] = None
 
-    definition: Optional[peano.PyDefinition] = None
+    definitions: Optional[peano.PyDefinition] = None
 
 
 @dataclass
@@ -28,6 +28,7 @@ class Solution:
     goal: str
     success: bool = False
     results: list[str] = field(default_factory=list)
+    arguments: list[str] = field(default_factory=list)
     subdefinitions: list[str] = field(default_factory=list)
     actions: list[(str, list[str])] = field(default_factory=list)
     derivation: peano.PyDerivation = None
@@ -47,19 +48,26 @@ class Solution:
                             actions=self.actions + [(action.arrow, None)],
                             derivation=self.derivation)
         elif action.kind == 'result':
-            # TODO: To support tactics, which might define a list of results in a single shot,
-            # action.definition should be made a list.
-            if action.definition is None:
+            if action.definitions is None:
                 derivation = self.derivation
                 subdefs = []
             else:
                 derivation = self.derivation.clone()
-                subdefs = derivation.define(f'!step{len(self.results)}', action.definition)
+                subdefs = []
+
+                for i, d in action.definitions:
+                    if i + 1 == len(action.definitions):
+                        name = f'!step{len(self.results)}'
+                    else:
+                        name = f'!tacr{derivation.next_id()}'
+
+                    subdefs.extend(derivation.define(name, d))
 
             return Solution(self.problem,
                             self.success,
                             results=self.results + [action.value],
                             subdefinitions=self.subdefinitions + [subdefs],
+                            arguments=self.arguments + [action.arguments],
                             actions=self.actions,
                             derivation=derivation)
         else:
@@ -89,16 +97,27 @@ class Solution:
         return len(self.actions) > len(self.results)
 
     def successors(self, domain: Domain):
-        actions = domain.derivation_actions(self.derivation)
+        tactics = domain.tactic_actions()
+        actions = domain.derivation_actions(self.derivation) + tactics
 
         if not self._is_action_chosen():
             return [Action(kind='arrow', arrow=a, value=a) for a in actions]
+        elif self.actions[-1][0] in tactics:
+            tactic = domain.get_tactic(self.actions[-1][0])
+            traces = tactic.execute(self.derivation) # .apply(self.actions[-1][0])
+            if not traces:
+                return [Action(kind='result', definitions=None, value='_')]
+            return [Action(kind='result',
+                           definitions=t.definitions,
+                           value=self.derivation.value_of(t.definitions[-1]),
+                           arguments=t.argument_values())
+                    for t in traces]
         else:
             results = self.derivation.apply(self.actions[-1][0])
             if not results:
-                return [Action(kind='result', definition=None, value='_')]
+                return [Action(kind='result', definitions=None, value='_')]
             return [Action(kind='result',
-                           definition=d,
+                           definitions=[d],
                            value=self.derivation.value_of(d),
                            arguments=d.generating_arguments())
                     for d in results]

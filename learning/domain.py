@@ -27,6 +27,18 @@ class Problem:
 
 
 class Domain:
+    def __init__(self):
+        self.tactics = []
+
+    def load_tactics(self, tactics):
+        self.tactics = tactics
+
+    def tactic_actions(self) -> list[str]:
+        return [t.name for t in self.tactics]
+
+    def get_tactic(self, name):
+        return [t for t in self.tactics if t.name == name][0]
+
     def generate(self, seed: int) -> Problem:
         raise NotImplementedError()
 
@@ -45,6 +57,7 @@ class Domain:
 
 class EquationsDomain(Domain):
     def __init__(self, cached_problems='linear-equations.pkl', variables=['x']):
+        super().__init__()
         blank_domain = peano.get_domain('blank')
 #        self.base_universe = blank_domain.generate(0)
         equations_theory = '''
@@ -380,6 +393,7 @@ n : nat.
 
 class MixedDomain(Domain):
     def __init__(self, subdomains):
+        super().__init__()
         self.subdomains = subdomains
 
     def generate_derivation(self, seed: int) -> Problem:
@@ -396,13 +410,13 @@ class MixedDomain(Domain):
         raise NotImplementedError('Should call derivation_actions from problem.domain')
 
 
-def make_domain(name):
+def make_domain(name, tactics=[]):
     # Example syntax: mix(equations, comb-like, simpl0)
     if name.startswith('mix(') and name.endswith(')'):
         names = list(name[len('mix('):-1].split(','))
         return MixedDomain(list(map(make_domain, names)))
 
-    return ({
+    d = ({
         'equations': EquationsDomain,
         'counting': CountingDomain,
         'equations-ct': EquationsCtDomain,
@@ -417,6 +431,10 @@ def make_domain(name):
         'simpl3': Simpl3Domain,
         'simpl4': Simpl4Domain,
     })[name.strip()]()
+
+    d.load_tactics(tactics)
+
+    return d
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="trainer")

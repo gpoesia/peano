@@ -50,6 +50,10 @@ impl Derivation {
         self.next_id
     }
 
+    pub fn lookup(&self, name: &String) -> Option<&Definition> {
+        self.context_.lookup(name)
+    }
+
     fn apply_builtin_eval(&self, new_terms: &mut Vec<Definition>) {
         for eq_name in self.context_.insertion_order.iter() {
             let def = self.context_.lookup(eq_name).unwrap();
@@ -251,6 +255,10 @@ impl Derivation {
     }
 
     fn apply_builtin_eval_with(&self, obj_name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
+        if def.is_prop(&self.context_) {
+            return;
+        }
+
         if let Some(val) = &def.value {
             /* Numeric evaluation */
             if let Term::Application { function, arguments } = val.as_ref() {
@@ -324,6 +332,8 @@ impl Derivation {
                 arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
             }))
         });
+
+        println!("eq_refl_with produced {:?}", new_terms);
     }
 
     fn apply_builtin_eq_symm_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {

@@ -230,6 +230,13 @@ impl PyDerivation {
         self.universe.define(name, d.def.clone(), false)
     }
 
+    pub fn lookup(&self, name: String) -> Option<PyDefinition> {
+        match self.universe.lookup(&name) {
+            None => None,
+            Some(def) => Some(PyDefinition { def: def.clone(), action: String::new() })
+        }
+    }
+
     pub fn is_prop(&self, d: &PyDefinition) -> bool {
         d.def.is_prop(&self.universe.context_)
     }
