@@ -11,7 +11,6 @@ import hydra
 from omegaconf import DictConfig
 
 import peano
-from domain import Domain, make_domain
 from policy import Episode
 
 
@@ -60,7 +59,10 @@ class Trace:
     assignments: dict[str, str]
     universe: peano.PyDerivation
     definitions: list[tuple[str, peano.PyDefinition]]
-    subdefs: list[str]
+
+    def argument_values(self):
+        'Returns the concrete values passed as each argument.'
+        return [v for k, v in sorted(list(self.assignments.items()))]
 
 
 class Tactic:
@@ -92,6 +94,9 @@ class Tactic:
         '''Returns whether the two tactics are identical modulo their names.
         Note that this is not testing for alpha-equivalence.'''
         return self.steps == rhs.steps
+
+    def rename(self, new_name: str) -> 'Tactic':
+        return Tactic(new_name, self.steps)
 
     @staticmethod
     def from_solution_slice(name: str,
@@ -223,11 +228,10 @@ class Tactic:
 
         return Tactic(self.name, new_steps)
 
-    def execute(self, u: peano.PyUniverse) -> list[peano.PyDefinition]:
+    def execute(self, u: peano.PyUniverse) -> list[Trace]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
 
-        # A trace is a tuple[universe, list[definitions]]
-        traces = [Trace({}, u, [], [])]
+        traces = [Trace({}, u, [])]
 
         for s in self.steps:
             new_traces = []
@@ -247,13 +251,15 @@ class Tactic:
                     if new_assignments is not None:
                         u = trace.universe.clone()
                         subdef_name = f'!{self.name}{u.next_id()}'
-                        new_subdefs = u.define(subdef_name, d)
+                        try:
+                          new_subdefs = u.define(subdef_name, d)
+                        except:
+                            import pdb; pdb.set_trace()
                         new_assignments[s.result] = subdef_name
                         new_traces.append(Trace(
                             new_assignments,
                             u,
-                            trace.definitions + [(subdef_name, d)],
-                            subdefs=trace.subdefs + new_subdefs))
+                            trace.definitions + [(subdef_name, d)]))
 
             traces = new_traces
 
@@ -293,7 +299,7 @@ def induce_tactics(episodes: list[Episode], n: int):
         arrows, arguments = e.actions[::2], e.arguments[1::2]
 
         for start in range(len(arrows) - 1):
-            for length in range(2, len(arrows) - 1 - start):
+            for length in range(2, len(arrows) - start):
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
                                                arguments[start:start+length])
@@ -331,7 +337,9 @@ def induce_tactics(episodes: list[Episode], n: int):
                           max(1, ts[0].number_of_parameters)),
                      reverse=True)
 
-    induced_tactics = [] # t for _, t in scored_lggs[:n]]
+    induced_tactics = []
+
+    n = min(n, len(scored_lggs))
 
     for i in range(n):
         is_independent = True
@@ -414,10 +422,36 @@ class TacticsTest(unittest.TestCase):
         assert t1.is_generalization_of(t1)
         assert t2.is_generalization_of(t2)
 
+    def test_tactic_beam_search(self):
+        import domain
+        import policy
+
+        tactic = Tactic(
+            'eval_rewrite_x2',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b'], '?1'),
+                Step('eval', ['?c'], '?2'),
+                Step('rewrite', ['?2', '?1'], '?3'),
+            ]
+        )
+
+        d = domain.make_domain('subst-eval', [tactic])
+        problem = d.start_derivation('(= x (* (+ (+ 1 2) 3) (* 2 2)))', '(= x ?)')
+
+        # Also works with the random policy, but requires large beam size (e.g. 10^4).
+        pi = policy.ConstantPolicy('eval_rewrite_x2')
+        episode = pi.beam_search(problem, depth=4, beam_size=1000)
+
+        # Only way to solve the problem within this depth is with the tactic twice.
+        assert episode.success
+        assert episode.actions[0] == 'eval_rewrite_x2'
+        assert episode.actions[2] == 'eval_rewrite_x2'
+
 
 # HACK: This becomes obsolete for runs that now track arguments, but we
 # need this if they don't.
-def recover_arguments(episode: Episode, domain: Domain):
+def recover_arguments(episode: Episode, domain: 'Domain'):
     problem = domain.start_derivation(episode.problem, episode.goal)
     arguments = []
 
@@ -440,6 +474,8 @@ def recover_arguments(episode: Episode, domain: Domain):
 
 
 def induce(cfg: DictConfig):
+    from domain import make_domain
+
     domain = make_domain(cfg.domain)
 
     with open(cfg.episodes, 'rb') as f:
@@ -448,7 +484,7 @@ def induce(cfg: DictConfig):
         for e in episodes:
             recover_arguments(e, domain)
 
-    induce_tactics(episodes, 5)
+    induce_tactics(episodes, 20)
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="tactics")

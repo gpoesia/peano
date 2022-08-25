@@ -20,12 +20,13 @@ from util import get_device
 from episode import ProofSearchEpisode
 from search import SearcherAgent, SearcherResults, run_search_on_batch, load_search_model
 from policy import ContrastivePolicy, RandomPolicy
+from tactics import induce_tactics
 
 
 logger = logging.getLogger(__name__)
 
 
-def spawn_searcher(rank, iteration, domain, max_nodes, max_depth,
+def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
                    rerank_top_k, model_type, model_path, seeds, device):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
 
@@ -39,7 +40,8 @@ def spawn_searcher(rank, iteration, domain, max_nodes, max_depth,
                  if model_type == 'contrastive-policy'
                  else 'best-first-search')
 
-    agent = SearcherAgent(make_domain(domain), m, max_nodes, max_depth,
+    agent = SearcherAgent(make_domain(domain, tactics),
+                          m, max_nodes, max_depth,
                           algorithm=algorithm)
 
     episodes = agent.run_batch(seeds)
@@ -74,6 +76,7 @@ class TrainerAgent:
             os.chdir(self.config.run_dir)
 
         last_checkpoint = None
+        tactics = []
 
         for i in itertools.count(0):
             path_i = os.path.join(os.getcwd(), f'{i}.pt')
@@ -89,6 +92,12 @@ class TrainerAgent:
         if os.path.exists(episodes_path_i):
             with open(episodes_path_i, 'rb') as f:
                 episodes = pickle.load(f)
+
+            tactics_path_i = os.path.join(os.getcwd(), f'tactics-{iteration}.pkl')
+            if os.path.exists(tactics_path_i):
+                with open(episodes_path_i, 'rb') as f:
+                    tactics = pickle.load(f)
+
             episodes_iteration = i
         else:
             episodes, episodes_iteration = [], -1
@@ -105,7 +114,7 @@ class TrainerAgent:
             m = torch.load(last_checkpoint, map_location=device)
 
         m = m.to(device)
-        return m, iteration, last_checkpoint, episodes, episodes_iteration
+        return m, iteration, last_checkpoint, episodes, tactics, episodes_iteration
 
     def get_train_domain(self, it: int):
         return self.train_domains[min(it, len(self.train_domains) - 1)]
@@ -116,7 +125,7 @@ class TrainerAgent:
         return 'cpu'
 
     def learn(self, seeds, eval_seeds):
-        m, iteration, last_checkpoint, episodes, ep_it = self.start()
+        m, iteration, last_checkpoint, episodes, tactics, ep_it = self.start()
 
         with ProcessPoolExecutor() as executor:
             for it in range(iteration, self.config.iterations):
@@ -137,6 +146,7 @@ class TrainerAgent:
                                 iteration=it,
                                 rank=j,
                                 domain=self.get_train_domain(it),
+                                tactics=tactics,
                                 max_nodes=self.max_nodes,
                                 max_depth=self.max_depth,
                                 rerank_top_k=self.rerank_top_k,
@@ -164,16 +174,45 @@ class TrainerAgent:
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
 
+                    latest_episodes = []
+
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
                         logger.info('Waiting for searcher #%d...', i)
                         result_i = f.result()
+                        latest_episodes.extend(result_i.episodes)
                         episodes.extend(result_i.episodes)
+
+                    # Induce tactics from new episodes.
+                    if self.config.get('induce_tactics'):
+                        proposals = induce_tactics(latest_episodes, self.config.n_tactics)
+                        new_tactics = []
+
+                        for p in proposals:
+                            independent = True
+
+                            for t in tactics:
+                                if t.is_comparable_to(p):
+                                    independent = False
+                                    break
+
+                            if independent:
+                                new_tactics.append(p.rename(f'tactic{len(tactics) + len(new_tactics):03d}'))
+
+                        logging.info('Induced %d new tactics', len(new_tactics))
+
+                        for t in new_tactics:
+                            logging.info('%s\n', t)
+
+                        tactics.extend(new_tactics)
 
                     self.searcher_futures = []
 
                     with open(f'episodes-{it}.pkl', 'wb') as f:
                         pickle.dump(episodes, f)
+
+                    with open(f'tactics-{it}.pkl', 'wb') as f:
+                        pickle.dump(tactics, f)
 
                 # Fit model and update checkpoint.
                 logger.info('Training model on %d episodes (%d successful)',

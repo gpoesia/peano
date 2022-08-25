@@ -55,11 +55,9 @@ class Solution:
                 derivation = self.derivation.clone()
                 subdefs = []
 
-                for i, d in action.definitions:
+                for i, (name, d) in enumerate(action.definitions):
                     if i + 1 == len(action.definitions):
                         name = f'!step{len(self.results)}'
-                    else:
-                        name = f'!tacr{derivation.next_id()}'
 
                     subdefs.extend(derivation.define(name, d))
 
@@ -109,7 +107,7 @@ class Solution:
                 return [Action(kind='result', definitions=None, value='_')]
             return [Action(kind='result',
                            definitions=t.definitions,
-                           value=self.derivation.value_of(t.definitions[-1]),
+                           value=self.derivation.value_of(t.definitions[-1][1]),
                            arguments=t.argument_values())
                     for t in traces]
         else:
@@ -117,7 +115,7 @@ class Solution:
             if not results:
                 return [Action(kind='result', definitions=None, value='_')]
             return [Action(kind='result',
-                           definitions=[d],
+                           definitions=[('!result', d)],
                            value=self.derivation.value_of(d),
                            arguments=d.generating_arguments())
                     for d in results]

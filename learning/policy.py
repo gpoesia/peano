@@ -115,7 +115,7 @@ def make_updated_universe(universe, definition, name):
     return u
 
 def recover_episode(problem, final_state: BeamElement, success) -> Episode:
-    states, actions, arguments, negative_actions, negative_outcomes = [], [], [], []
+    states, actions, arguments, negative_actions, negative_outcomes = [], [], [], [], []
 
     current = final_state
 
@@ -373,6 +373,19 @@ class RandomPolicy(Policy):
 
     def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
         return torch.rand((len(arrows),))
+
+    def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
+        return torch.rand((len(outcomes),))
+
+
+class ConstantPolicy(Policy):
+    'Used for debugging.'
+    def __init__(self, arrow, config=None):
+        super().__init__()
+        self.arrow = arrow
+
+    def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
+        return torch.tensor([int(a == self.arrow) for a in arrows])
 
     def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
         return torch.rand((len(outcomes),))
