@@ -108,7 +108,9 @@ class Tactic:
         steps = []
         rewrites = {}
 
-        for i, (arrow, args) in enumerate(zip(arrows, arguments)):
+        for i, (arrow, args) in enumerate([(arr, args)
+                                           for arr, args in zip(arrows, arguments)
+                                           if args is not None]):
             result = f'?{i}'
             rewrites[f'!step{start_index + i}'] = result
             steps.append(Step(arrow, [rewrites.get(a, a) for a in args], result))
