@@ -185,7 +185,9 @@ class TrainerAgent:
 
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
-                        proposals = induce_tactics(latest_episodes, self.config.n_tactics)
+                        proposals = induce_tactics(latest_episodes,
+                                                   self.config.n_tactics,
+                                                   self.config.min_tactic_score)
                         new_tactics = []
 
                         for p in proposals:
@@ -199,7 +201,7 @@ class TrainerAgent:
                             if independent:
                                 new_tactics.append(p.rename(f'tactic{len(tactics) + len(new_tactics):03d}'))
 
-                        logging.info('Induced %d new tactics', len(new_tactics))
+                        logging.info('Incorporating %d new tactics', len(new_tactics))
 
                         for t in new_tactics:
                             logging.info('%s\n', t)

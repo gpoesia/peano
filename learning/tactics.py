@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import unittest
 import pickle
 from functools import cached_property
+import random
 
 import hydra
 from omegaconf import DictConfig
@@ -293,7 +294,10 @@ class Tactic:
         return assignments
 
 
-def induce_tactics(episodes: list[Episode], n: int):
+# Maximum number of solution slices to use for inducing tactics.
+MAX_SLICES = 10**4
+
+def induce_tactics(episodes: list[Episode], max_n: int, min_score: float):
     episodes = [e for e in episodes if e.success]
     tactics_from_slices = []
 
@@ -301,13 +305,17 @@ def induce_tactics(episodes: list[Episode], n: int):
         arrows, arguments = e.actions[::2], e.arguments[1::2]
 
         for start in range(len(arrows) - 1):
-            for length in range(2, len(arrows) - start):
+            for length in range(2, len(arrows) - start + 1):
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
                                                arguments[start:start+length])
                 tactics_from_slices.append(t)
 
     print(len(tactics_from_slices), 'tactics from slices.')
+
+    if len(tactics_from_slices) > MAX_SLICES:
+        tactics_from_slices = random.sample(tactics_from_slices, MAX_SLICES)
+
     lggs = []
 
     for i, t1 in enumerate(tactics_from_slices):
@@ -333,31 +341,41 @@ def induce_tactics(episodes: list[Episode], n: int):
     scored_lggs.sort(key=(lambda ts:
                           # Occurrences.
                           ts[1] *
-                          # Number of steps.
+                          # Number of reduced steps in rewritten solutions.
                           ((ts[0].number_of_steps) - 1) /
                           # Number of parameters.
                           max(1, ts[0].number_of_parameters)),
                      reverse=True)
 
-    induced_tactics = []
+    candidates = []
+    total_score = 0
 
-    n = min(n, len(scored_lggs))
-
-    for i in range(n):
+    for i in range(len(scored_lggs)):
         is_independent = True
 
-        for it in induced_tactics:
-            if it.is_comparable_to(scored_lggs[i][0]):
+        for t, _s in candidates:
+            if t.is_comparable_to(scored_lggs[i][0]):
                 is_independent = False
                 break
 
         if is_independent:
-            induced_tactics.append(scored_lggs[i][0])
+            candidates.append(scored_lggs[i])
+            total_score += scored_lggs[i][1]
 
-    print(f'Induced {len(induced_tactics)} tactics:')
+    print(f'Induced {len(candidates)} independent tactics:')
 
-    for t in induced_tactics:
-        print(f'=== \n', t, '\n', sep='')
+    induced_tactics = []
+
+    for t, s in candidates:
+        if len(induced_tactics) == max_n:
+            break
+
+        print(f'=== Score {s} / {s / total_score}\n', t, '\n', sep='')
+
+        if s >= min_score:
+            induced_tactics.append(s)
+
+    print('Selected the top', len(induced_tactics))
 
     return induced_tactics
 
@@ -451,30 +469,6 @@ class TacticsTest(unittest.TestCase):
         assert episode.actions[2] == 'eval_rewrite_x2'
 
 
-# HACK: This becomes obsolete for runs that now track arguments, but we
-# need this if they don't.
-def recover_arguments(episode: Episode, domain: 'Domain'):
-    problem = domain.start_derivation(episode.problem, episode.goal)
-    arguments = []
-
-    for i, (arrow, outcome) in enumerate(zip(episode.actions[::2], episode.actions[1::2])):
-        if outcome == '_':
-            arguments.append([])
-            arguments.append([])
-            continue
-
-        choices = problem.universe.apply(arrow)
-        arguments.append([])
-        definitions = [d for d in choices if problem.universe.value_of(d) == outcome]
-
-        assert len(definitions) > 0, "Failed to replay the solution."
-
-        arguments.append(definitions[0].generating_arguments())
-        problem.universe.define(f'!step{i}', definitions[0])
-
-    episode.arguments = arguments
-
-
 def induce(cfg: DictConfig):
     from domain import make_domain
 
@@ -484,9 +478,12 @@ def induce(cfg: DictConfig):
         episodes = pickle.load(f)
 
         for e in episodes:
-            recover_arguments(e, domain)
+            if cfg.get('cleanup'):
+                e.cleanup(domain)
+            else:
+                e.recover_arguments(domain)
 
-    induce_tactics(episodes, 20)
+    induce_tactics(episodes, 20, 200)
 
 
 @hydra.main(version_base="1.2", config_path="config", config_name="tactics")

@@ -7,8 +7,11 @@ trainer:
     train_domains:
         - subst-eval
         - subst-eval
+        - subst-eval
         - mix(subst-eval, comb-like)
         - mix(subst-eval, comb-like)
+        - mix(subst-eval, comb-like)
+        - mix(subst-eval, comb-like, one-step-add-eq)
         - mix(subst-eval, comb-like, one-step-add-eq)
         - mix(subst-eval, comb-like, one-step-add-eq)
 
@@ -24,6 +27,9 @@ trainer:
     max_nodes: 200
     rerank_top_k: 200
     algorithm: 'policy-beam-search'
+
+    n_tactics: 10
+    min_tactic_score: 200
 
     model:
         type: contrastive-policy

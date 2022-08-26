@@ -82,6 +82,79 @@ class Episode:
     negative_actions: list[list[str]] = field(default_factory=list)
     searched_nodes: list[SearchNode] = None
 
+    def cleanup(self, domain: Domain):
+        if not self.success:
+            return self
+
+        actions = []
+        states = []
+        negative_actions = []
+
+        # The very last action is always included, since we detected a solution right after it.
+        actions = self.actions[-2:]
+
+        for i in range(len(self.actions) - 4, -1, -2):
+            # Try to ignore the i-th action and see if it affects anything that comes after it.
+            action, outcome = self.actions[i], self.actions[i + 1]
+            works = True
+
+            if outcome == '_':
+                # Ignore.
+                continue
+
+            # Add all actions up to the i-th, and then only those in `actions`.
+            u = domain.start_derivation(self.problem, self.goal).universe
+
+            ablated_solution = self.actions[:i] + actions
+
+            for j in range(0, len(ablated_solution), 2):
+                arrow, result = ablated_solution[j:j+2]
+                outcomes = u.apply(arrow)
+                found = False
+
+                for o in outcomes:
+                    if u.value_of(o) == result:
+                        found = True
+                        u.define(f'!step{j // 2}', o)
+                        break
+
+                if not found:
+                    works = False
+                    break
+
+            if not works:
+                # Solution could not be replayed without the i-th action, so it's needed.
+                actions = [action, outcome] + actions
+                states = self.states[i:i+2] + states
+                negative_actions = self.negative_actions[i:i+2] + negative_actions
+
+        self.actions = actions
+        self.states = states
+        self.negative_actions = negative_actions
+
+        self.recover_arguments(domain)
+
+    def recover_arguments(self, domain: 'Domain'):
+        problem = domain.start_derivation(self.problem, self.goal)
+        arguments = []
+
+        for i, (arrow, outcome) in enumerate(zip(self.actions[::2], self.actions[1::2])):
+            if outcome == '_':
+                arguments.append([])
+                arguments.append([])
+                continue
+
+            choices = problem.universe.apply(arrow)
+            arguments.append([])
+            definitions = [d for d in choices if problem.universe.value_of(d) == outcome]
+
+            assert len(definitions) > 0, "Failed to replay the solution."
+
+            arguments.append(definitions[0].generating_arguments())
+            problem.universe.define(f'!step{i}', definitions[0])
+
+        self.arguments = arguments
+
 
 @dataclass
 class TreeSearchEpisode:
@@ -138,7 +211,7 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
                    actions[::-1],
                    arguments[::-1],
                    states[::-1],
-                   negative_actions[::-1])
+                   negative_actions[::-1]).cleanup()
 
 
 class Policy(nn.Module):
