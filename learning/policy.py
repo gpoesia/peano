@@ -87,7 +87,6 @@ class Episode:
             return
 
         actions = []
-        states = []
         negative_actions = []
 
         # The very last action is always included, since we detected a solution right after it.
@@ -125,11 +124,10 @@ class Episode:
             if not works:
                 # Solution could not be replayed without the i-th action, so it's needed.
                 actions = [action, outcome] + actions
-                states = self.states[i:i+2] + states
                 negative_actions = self.negative_actions[i:i+2] + negative_actions
 
         self.actions = actions
-        self.states = states
+        self.states = Solution.states_from_episode(self.problem, self.goal, actions)
         self.negative_actions = negative_actions
 
         self.recover_arguments(domain)

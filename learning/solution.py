@@ -38,6 +38,21 @@ class Solution:
     def from_problem(problem):
         return Solution(problem.description, problem.goal, derivation=problem.universe)
 
+    @staticmethod
+    def states_from_episode(problem: str, goal: str, actions: list[str],
+                            max_len: int = 200):
+        states = []
+        solution = Solution(problem, goal)
+
+        for i in range(len(actions)):
+            if i % 2 == 0:
+                solution.actions.append((actions[i], None))
+            else:
+                solution.results.append(actions[i])
+
+            states.append(solution.format(max_len))
+
+        return states
 
     def push_action(self, action):
         if action.kind == 'arrow':
@@ -80,10 +95,10 @@ class Solution:
         for d, (a, _) in itertools.zip_longest(self.results, self.actions):
             lines.append(f'{a}:-{d or "###"}')
 
-        s = '\n'.join(lines)
+        s = f'G:{self.goal}\n' + '\n'.join(lines)
 
         if max_len is not None and len(s) > max_len:
-            s = f'...{s[-max_len:]}'
+            s = f'G:{self.goal}\n...{s[-max_len:]}'
 
         return s
 
