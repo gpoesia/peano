@@ -84,7 +84,7 @@ class Episode:
 
     def cleanup(self, domain: Domain):
         if not self.success:
-            return self
+            return
 
         actions = []
         states = []
@@ -205,13 +205,15 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
 
         current = current.parent
 
-    return Episode(problem.description,
-                   problem.goal,
-                   success,
-                   actions[::-1],
-                   arguments[::-1],
-                   states[::-1],
-                   negative_actions[::-1]).cleanup()
+    e = Episode(problem.description,
+                problem.goal,
+                success,
+                actions[::-1],
+                arguments[::-1],
+                states[::-1],
+                negative_actions[::-1])
+    e.cleanup()
+    return e
 
 
 class Policy(nn.Module):
