@@ -373,7 +373,7 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float):
         print(f'=== Score {s} / {s / total_score}\n', t, '\n', sep='')
 
         if s >= min_score:
-            induced_tactics.append(s)
+            induced_tactics.append(t)
 
     print('Selected the top', len(induced_tactics))
 
