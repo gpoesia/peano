@@ -959,7 +959,7 @@ class ContrastivePolicy(Policy):
 
         for e in dataset:
             for i in range(len(e.actions) // 2):
-                all_negatives.append(e[2*i:2*i+2])
+                all_negatives.append(e.actions[2*i:2*i+2])
 
         # Assemble contrastive examples
         examples = []
