@@ -23,12 +23,13 @@ trainer:
     iterations: 10
     batch_size: 500
     n_searchers: 5
-    max_depth: 10
+    max_depth: 20
     max_nodes: 200
     rerank_top_k: 200
     algorithm: 'policy-beam-search'
 
-    n_tactics: 10
+    induce_tactics: true
+    n_tactics: 5
     min_tactic_score: 200
 
     model:
