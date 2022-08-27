@@ -212,7 +212,7 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
                 arguments[::-1],
                 states[::-1],
                 negative_actions[::-1])
-    e.cleanup()
+    e.cleanup(problem.domain)
     return e
 
 
