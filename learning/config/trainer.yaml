@@ -30,7 +30,7 @@ trainer:
 
     induce_tactics: true
     n_tactics: 5
-    min_tactic_score: 200
+    min_tactic_score: 50
 
     model:
         type: contrastive-policy
