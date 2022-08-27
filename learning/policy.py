@@ -89,10 +89,10 @@ class Episode:
             return
 
         actions = []
-        negative_actions = []
 
         # The very last action is always included, since we detected a solution right after it.
         actions = self.actions[-2:]
+        negative_actions = self.negative_actions[-2:]
 
         for i in range(len(self.actions) - 4, -1, -2):
             # Try to ignore the i-th action and see if it affects anything that comes after it.
