@@ -7,6 +7,7 @@ import logging
 import random
 from domain import Domain, EquationsDomain, Problem, make_domain
 from enum import Enum
+import unittest
 
 import torch
 from torch import nn
@@ -15,6 +16,7 @@ from torch.distributions.categorical import Categorical
 from transformers import ReformerModelWithLMHead, ReformerConfig, GPT2Config, GPT2LMHeadModel
 import wandb
 from tqdm import tqdm
+import numpy as np
 
 from environment import Universe
 from util import log, softmax, pop_max, encode_batch, decode_batch, PAD, EOS, BOS, POSITIVE, NEGATIVE, EMPTY
@@ -799,6 +801,8 @@ class ContrastivePolicy(Policy):
         self.batch_size = config.batch_size
         self.lr = config.lr
         self.gradient_steps = config.gradient_steps
+        self.solution_augmentation_probability = config.solution_augmentation_probability
+        self.solution_augmentation_rate = config.solution_augmentation_rate
 
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
@@ -834,7 +838,7 @@ class ContrastivePolicy(Policy):
     def get_device(self):
         return self.embedding.weight.device
 
-    def extract_examples(self, episode) -> list[ContrastivePolicyExample]:
+    def extract_examples(self, episode, random_negatives=[]) -> list[ContrastivePolicyExample]:
         examples = []
 
         if not episode.success and self.discard_unsolved:
@@ -848,6 +852,10 @@ class ContrastivePolicy(Policy):
                                                                  state=episode.states[i],
                                                                  positive=a,
                                                                  negatives=episode.negative_actions[i]))
+
+                        if random_negatives and \
+                           random.random() < self.solution_augmentation_probability:
+                            examples.append(self._perform_augmentation(episode, random_negatives))
 
             if self.train_value_function:
                 for i, s in enumerate(episode.states):
@@ -863,6 +871,54 @@ class ContrastivePolicy(Policy):
                                                          value=node.value_target))
 
         return examples
+
+    def _perform_augmentation(self, episode, random_negatives):
+        # Add a few random negatives to the solution
+        augmented_actions = []
+
+        # How many to insert.
+        n_insertions = np.random.geometric(p=self.solution_augmentation_rate)
+        # Where to insert random steps.
+        queue = sorted(random.choices(list(range(len(episode.actions) // 2)),
+                                      k=n_insertions), reverse=True)
+        is_augmentation = []
+        positives, negatives = [], []
+
+        for i in range(len(episode.actions) // 2):
+            while queue and queue[-1] == i:
+                queue.pop()
+                augmented_actions.extend(random.choice(random_negatives))
+
+                if random.random() < 0.5:
+                    augmented_actions[-1] = '_'
+
+                positives.extend(episode.actions[2*i:2*i+2])
+                negatives.extend(episode.negative_actions[2*i:2*i+2])
+                is_augmentation.append(True)
+
+            augmented_actions.extend(episode.actions[2*i:2*i+2])
+            positives.extend(episode.actions[2*i:2*i+2])
+            negatives.extend(episode.negative_actions[2*i:2*i+2])
+            is_augmentation.append(False)
+
+        augmentations = []
+
+        states = Solution.states_from_episode(episode.problem, episode.goal,
+                                              augmented_actions)
+
+        assert len(states) == 1 + len(augmented_actions)
+
+        for i in range(len(is_augmentation)):
+            if i and is_augmentation[i-1]:
+                augmentations.append(ContrastivePolicyExample(
+                    type=ExampleType.STATE_ACTION,
+                    state=states[2*i],
+                    positive=positives[2*i],
+                    negatives=negatives[2*i]
+                ))
+
+        return augmentations
+
 
     def get_loss(self, batch) -> torch.Tensor:
         losses = []
@@ -889,6 +945,8 @@ class ContrastivePolicy(Policy):
         strs = [s[:self.max_len] for s in strs]
         input = encode_batch(strs, self.get_device(), bos=True, eos=True)
         input = self.embedding(input.transpose(0, 1))
+
+        # TODO: Should batch here if needed to avoid OOMs.
         output, _ = self.lm(input)
         return output[0, :, :]
 
@@ -897,10 +955,17 @@ class ContrastivePolicy(Policy):
 
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
+        all_negatives = []
+
+        for e in dataset:
+            for i in range(len(e.actions) // 2):
+                all_negatives.append(e[2*i:2*i+2])
+
         # Assemble contrastive examples
         examples = []
+
         for episode in dataset:
-            examples.extend(self.extract_examples(episode))
+            examples.extend(self.extract_examples(episode, all_negatives))
 
         for e in range(self.gradient_steps):
             optimizer.zero_grad()
@@ -912,6 +977,30 @@ class ContrastivePolicy(Policy):
             wandb.log({'train_loss': loss.cpu()})
 
             checkpoint_callback()
+
+
+class TestDataPreparation(unittest.TestCase):
+    def test_solution_augmentation(self):
+        import omegaconf
+        cfg = omegaconf.DictConfig({
+            'gru': {'hidden_size': 10, 'embedding_size': 10, 'layers': 1},
+            'discard_unsolved': True,
+            'train_value_function': False,
+            'batch_size': 10,
+            'lr': 1e-5,
+            'gradient_steps': 10,
+            'solution_augmentation_probability': 1.0,
+            'solution_augmentation_rate': 0.2,
+        })
+        policy = ContrastivePolicy(cfg)
+        episode = Episode('(= x (+ 10 20))', '(= x ?)', True,
+                          actions=['eval', '(= (+ 10 20) 30)', 'rewrite', '(= x 30)'],
+                          states=["s1", "s2", "s3", "s4", "s5"],
+                          negative_actions=[['a', 'b'], ['o1'], ['a', 'b'], ['o2']])
+
+        examples = policy.extract_examples(episode, [('haha', 'hoho'), ('hihi', 'hehe')])
+        breakpoint()
+        print('Hello')
 
 
 def make_policy(config):

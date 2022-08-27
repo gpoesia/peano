@@ -35,6 +35,8 @@ trainer:
         type: contrastive-policy
         discard_unsolved: true
         train_value_function: false
+        solution_augmentation_probability: 0.5
+        solution_augmentation_rate: 0.5
 
         gru:
             embedding_size: 64

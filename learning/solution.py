@@ -44,6 +44,8 @@ class Solution:
         states = []
         solution = Solution(problem, goal)
 
+        states.append(solution.format(max_len))
+
         for i in range(len(actions)):
             if i % 2 == 0:
                 solution.actions.append((actions[i], None))
@@ -95,12 +97,12 @@ class Solution:
         for d, (a, _) in itertools.zip_longest(self.results, self.actions):
             lines.append(f'{a}:-{d or "###"}')
 
-        s = f'G:{self.goal}\n' + '\n'.join(lines)
+        s = '\n'.join(lines)
 
         if max_len is not None and len(s) > max_len:
-            s = f'G:{self.goal}\n...{s[-max_len:]}'
+            s = f'...{s[-max_len:]}'
 
-        return s
+        return f'G:{self.goal}\n' + s
 
     def _is_action_chosen(self):
         '''Returns True if the action (arrow) to be applied has been chosen at this state.
