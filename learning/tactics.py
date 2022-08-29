@@ -61,7 +61,7 @@ class Trace:
     universe: peano.PyDerivation
     definitions: list[tuple[str, peano.PyDefinition]]
 
-    def argument_values(self):
+    def generating_arguments(self):
         'Returns the concrete values passed as each argument.'
         return [v for k, v in sorted(list(self.assignments.items()))]
 
@@ -467,6 +467,23 @@ class TacticsTest(unittest.TestCase):
         assert episode.success
         assert episode.actions[0] == 'eval_rewrite_x2'
         assert episode.actions[2] == 'eval_rewrite_x2'
+
+    def test_beam_search_without_tactics(self):
+        # The policy execution code had to be generalize to accomodate for tactics.
+        # Here we test that doesn't break execution without tactics. This test should
+        # likely be in policy though.
+        import domain
+        import policy
+
+        d = domain.make_domain('subst-eval', [])
+        problem = d.start_derivation('(= x (* 2 2))', '(= x ?)')
+        pi = policy.RandomPolicy()
+        episode = pi.beam_search(problem, depth=4, beam_size=1000)
+
+        # Only way to solve the problem within this depth is with the tactic twice.
+        assert episode.success
+        assert episode.actions[0] == 'eval'
+        assert episode.actions[2] == 'rewrite'
 
 
 def induce(cfg: DictConfig):

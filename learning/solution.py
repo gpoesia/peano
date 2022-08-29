@@ -125,7 +125,7 @@ class Solution:
             return [Action(kind='result',
                            definitions=t.definitions,
                            value=self.derivation.value_of(t.definitions[-1][1]),
-                           arguments=t.argument_values())
+                           arguments=t.generating_arguments())
                     for t in traces]
         else:
             results = self.derivation.apply(self.actions[-1][0])

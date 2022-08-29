@@ -139,19 +139,22 @@ class Episode:
         arguments = []
 
         for i, (arrow, outcome) in enumerate(zip(self.actions[::2], self.actions[1::2])):
+            arguments.append([])
+
             if outcome == '_':
-                arguments.append([])
                 arguments.append([])
                 continue
 
-            choices = problem.universe.apply(arrow)
-            arguments.append([])
-            definitions = [d for d in choices if problem.universe.value_of(d) == outcome]
+            choices = domain.apply(arrow, problem.universe)
+            definitions = [d for d in choices if domain.value_of(problem.universe, d) == outcome]
+
+            if len(definitions) == 0:
+                breakpoint()
 
             assert len(definitions) > 0, "Failed to replay the solution."
 
             arguments.append(definitions[0].generating_arguments())
-            problem.universe.define(f'!step{i}', definitions[0])
+            domain.define(problem.universe, f'!step{i}', definitions[0])
 
         self.arguments = arguments
 

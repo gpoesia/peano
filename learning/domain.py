@@ -39,6 +39,32 @@ class Domain:
     def get_tactic(self, name):
         return [t for t in self.tactics if t.name == name][0]
 
+    def apply(self, arrow: str, universe: peano.PyDerivation) -> list[peano.PyDefinition]:
+        if arrow in self.tactic_actions():
+            return self.get_tactic(arrow).execute(universe)
+
+        return universe.apply(arrow)
+
+    def value_of(self, universe, definition) -> str:
+        if hasattr(definition, 'definitions'):
+            return universe.value_of(definition.definitions[-1][1])
+        return universe.value_of(definition)
+
+    def define(self, universe, name, definition) -> list[str]:
+        if hasattr(definition, 'definitions'):
+            subdefs = []
+
+            for i, (d_name, d) in enumerate(definition.definitions):
+                subdef_name = (name
+                               if (i + 1 == len(definition.definitions))
+                               else d_name)
+                subdefs.extend(universe.define(name, d))
+
+            return subdefs
+
+        return universe.define(name, definition)
+
+
     def generate(self, seed: int) -> Problem:
         raise NotImplementedError()
 
