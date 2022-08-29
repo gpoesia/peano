@@ -858,7 +858,7 @@ class ContrastivePolicy(Policy):
 
                         if random_negatives and \
                            random.random() < self.solution_augmentation_probability:
-                            examples.append(self._perform_augmentation(episode, random_negatives))
+                            examples.extend(self._perform_augmentation(episode, random_negatives))
 
             if self.train_value_function:
                 for i, s in enumerate(episode.states):
