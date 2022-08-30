@@ -249,6 +249,15 @@ def print_solutions(path, min_length=0):
         print('###\n\n')
 
 
+def print_tactics(path, min_length=0):
+    with open(path, 'rb') as f:
+        tactics = pickle.load(f)
+
+    print(f'{len(tactics)} tactics.')
+
+    for t in tactics:
+        print(t, '\n')
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Interact with pre-trained models or the environment.')
     parser.add_argument('--eval', help='Evaluate the given agent on the test set.', action='store_true')
@@ -258,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--print', help='Pretty print solved episodes from the given pickle file.', type=str)
+    parser.add_argument('--print-tactics', help='Pretty print generated tactics from the given pickle file.', type=str)
     parser.add_argument('--derivation', help='Solve a problem manually', action='store_true')
     parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
@@ -301,3 +311,5 @@ if __name__ == '__main__':
         generate_from_policy(opt.agent, domain, device)
     elif opt.print:
         print_solutions(opt.print)
+    elif opt.print_tactics:
+        print_tactics(opt.print_tactics)

@@ -580,7 +580,6 @@ class TacticsTest(unittest.TestCase):
         e_rw.recompute_negatives(d)
         assert len(e_rw.negative_actions) == 4
 
-
     def test_tactics_scoping(self):
         import domain
         import policy
@@ -619,8 +618,9 @@ def induce(cfg: DictConfig):
 
     with open(cfg.episodes, 'rb') as f:
         episodes = pickle.load(f)
+        episodes = episodes[-5000:]
 
-        if 'domain' in cfg.domain:
+        if 'domain' in cfg:
             domain = make_domain(cfg.domain)
             for e in episodes:
                 if cfg.get('cleanup'):
