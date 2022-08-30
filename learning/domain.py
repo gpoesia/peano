@@ -291,9 +291,28 @@ class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
 class CombiningLikeTerms(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
+            "(= answer (+- x (+- d d)))",
             "(= answer (+- (+- x d) d))",
+            "(= answer (+- (+- d x) d))",
+            "(= answer (+- d (+- d x)))",
+            "(= answer (+- d (+- d x)))",
             "(= answer (*/ (*/ x d) d))"
+            "(= answer (*/ d (*/ x d)))"
         ], variables=['x', 'answer'])
+
+
+    @staticmethod
+    def _check_pattern(s: str, pattern: str, forbidden_constants: list[set[str]]):
+        m = re.match(pattern, s)
+
+        if not m:
+            return False
+
+        for g, f in zip(m.groups(), forbidden_constants):
+            if g in f:
+                return False
+
+        return True
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to find an equality between answer and a simplified term.'
@@ -303,19 +322,16 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
             try:
                 # These match simplified expressions:
                 rational = r'-?\d+(/\d+)?'
-                patterns = [
-                    fr'\(= answer {rational}\)',
-                    fr'\(= answer x\)',
-                    fr'\(= answer \([+-] x {rational}\)\)',  # x + k
-                    fr'\(= answer \(\* {rational} x\)\)',  # k * x
-                    fr'\(= answer \(/ x {rational}\)\)',  # x / k
-                    fr'\(= answer \([+-] \(\* {rational} x\) {rational}\)\)',  # a*x +- b
-                    fr'\(= answer \([+-] \(/ x {rational}\) {rational}\)\)',  # x/k +- b
-                ]
-                for pattern in patterns:
-                    m = re.match(pattern, val)
-                    if m:
-                        return name
+                if (CombiningLikeTerms._check_pattern(val, fr'\(= answer {rational}\)', []) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer x\)', []) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] x ({rational})\)\)', [{'0'}]) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(- {rational} x\)\)', []) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(\* x ({rational})\)\)', [{'0', '1'}]) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(/ x ({rational})\)\)', [{'1'}]) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] \(\* x ({rational})\) ({rational})\)\)', [{'0', '1'}, {'0'}]) or
+                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] \(/ x ({rational})\) ({rational})\)\)', [{'1'}, {'0'}])):
+
+                    return name
             except ValueError:
                 pass
         return None
