@@ -489,16 +489,17 @@ class TacticsTest(unittest.TestCase):
 def induce(cfg: DictConfig):
     from domain import make_domain
 
-    domain = make_domain(cfg.domain)
 
     with open(cfg.episodes, 'rb') as f:
         episodes = pickle.load(f)
 
-        for e in episodes:
-            if cfg.get('cleanup'):
-                e.cleanup(domain)
-            else:
-                e.recover_arguments(domain)
+        if 'domain' in cfg.domain:
+            domain = make_domain(cfg.domain)
+            for e in episodes:
+                if cfg.get('cleanup'):
+                    e.cleanup(domain)
+                else:
+                    e.recover_arguments(domain)
 
     induce_tactics(episodes, 20, 200)
 
