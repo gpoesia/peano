@@ -297,7 +297,8 @@ class Tactic:
 # Maximum number of solution slices to use for inducing tactics.
 MAX_SLICES = 10**4
 
-def induce_tactics(episodes: list[Episode], max_n: int, min_score: float):
+def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
+                   filter_comparable_to: list[Tactic] = []):
     episodes = [e for e in episodes if e.success]
     tactics_from_slices = []
 
@@ -332,6 +333,10 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float):
     scored_lggs = []
 
     for t in lggs:
+        # Make sure tactic is independent from all existing ones.
+        if any(map(lambda e_t: e_t.is_comparable_to(t), filter_comparable_to)):
+            continue
+
         occurrences = 0
         for s in tactics_from_slices:
             if t.is_generalization_of(s):
