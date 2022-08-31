@@ -56,9 +56,10 @@ class Solution:
 
         return states
 
-    def push_action(self, action):
+    def push_action(self, action, domain):
         if action.kind == 'arrow':
             return Solution(self.problem,
+                            self.goal,
                             self.success,
                             results=self.results,
                             subdefinitions=self.subdefinitions,
@@ -70,15 +71,10 @@ class Solution:
                 subdefs = []
             else:
                 derivation = self.derivation.clone()
-                subdefs = []
-
-                for i, (name, d) in enumerate(action.definitions):
-                    if i + 1 == len(action.definitions):
-                        name = f'!step{len(self.results)}'
-
-                    subdefs.extend(derivation.define(name, d))
+                subdefs = domain.define(derivation, f'!step{len(self.results)}', action)
 
             return Solution(self.problem,
+                            self.goal,
                             self.success,
                             results=self.results + [action.value],
                             subdefinitions=self.subdefinitions + [subdefs],
@@ -119,12 +115,12 @@ class Solution:
             return [Action(kind='arrow', arrow=a, value=a) for a in actions]
         elif self.actions[-1][0] in tactics:
             tactic = domain.get_tactic(self.actions[-1][0])
-            traces = tactic.execute(self.derivation) # .apply(self.actions[-1][0])
+            traces = tactic.execute(self.derivation, domain)
             if not traces:
                 return [Action(kind='result', definitions=None, value='_')]
             return [Action(kind='result',
                            definitions=t.definitions,
-                           value=self.derivation.value_of(t.definitions[-1][1]),
+                           value=domain.value_of(t.universe, t),
                            arguments=t.generating_arguments())
                     for t in traces]
         else:
@@ -149,6 +145,6 @@ class SolutionTest(unittest.TestCase):
 
         # Choose */_assoc_l
         a = [a for a in sol.successors(d) if a.arrow == '*/_assoc_r'][0]
-        sol = sol.push_action(a)
+        sol = sol.push_action(a, d)
 
-        sol = sol.push_action(sol.successors(d)[0])
+        sol = sol.push_action(sol.successors(d)[0], d)

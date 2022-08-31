@@ -28,37 +28,37 @@ class Problem:
 
 class Domain:
     def __init__(self):
-        self.tactics = []
+        self.tactics = {}
 
     def load_tactics(self, tactics):
-        self.tactics = tactics
+        self.tactics = {t.name : t for t in tactics}
 
     def tactic_actions(self) -> list[str]:
-        return [t.name for t in self.tactics]
+        return list(self.tactics.keys())
 
-    def get_tactic(self, name):
-        return [t for t in self.tactics if t.name == name][0]
+    def get_tactic(self, name: str) -> 'Tactic':
+        return self.tactics.get(name)
 
-    def apply(self, arrow: str, universe: peano.PyDerivation) -> list[peano.PyDefinition]:
-        if arrow in self.tactic_actions():
-            return self.get_tactic(arrow).execute(universe)
+    def apply(self, arrow: str, universe: peano.PyDerivation, toplevel=True) -> list[peano.PyDefinition]:
+        if arrow in self.tactics:
+            return self.tactics[arrow].execute(universe, self, toplevel)
 
         return universe.apply(arrow)
 
     def value_of(self, universe, definition) -> str:
         if hasattr(definition, 'definitions'):
-            return universe.value_of(definition.definitions[-1][1])
+            return self.value_of(universe, definition.definitions[-1][1])
         return universe.value_of(definition)
 
-    def define(self, universe, name, definition) -> list[str]:
+    def define(self, universe, name, definition, toplevel=True) -> list[str]:
         if hasattr(definition, 'definitions'):
             subdefs = []
 
             for i, (d_name, d) in enumerate(definition.definitions):
                 subdef_name = (name
-                               if (i + 1 == len(definition.definitions))
+                               if toplevel and name and (i + 1 == len(definition.definitions))
                                else d_name)
-                subdefs.extend(universe.define(name, d))
+                subdefs.extend(self.define(universe, subdef_name, d, False))
 
             return subdefs
 

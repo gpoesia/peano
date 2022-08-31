@@ -63,7 +63,9 @@ class Trace:
 
     def generating_arguments(self):
         'Returns the concrete values passed as each argument.'
-        return [v for k, v in sorted(list(self.assignments.items()))]
+        return [v
+                for k, v in sorted(list(self.assignments.items()))
+                if is_parameter_name(k)]
 
 
 class Tactic:
@@ -231,7 +233,7 @@ class Tactic:
 
         return Tactic(self.name, new_steps)
 
-    def execute(self, u: peano.PyUniverse) -> list[Trace]:
+    def execute(self, u: peano.PyUniverse, d: 'Domain', toplevel = True) -> list[Trace]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
 
         traces = [Trace({}, u, [])]
@@ -243,26 +245,27 @@ class Tactic:
                 # 1- Execute the step.
                 # NOTE: apply is fully non-deterministic. We should replace this with a new
                 # API for specifying all known parameters, and only being non-deterministic on the holes.
-                new_defs = trace.universe.apply(s.arrow)
+                new_defs = d.apply(s.arrow, trace.universe, False)
 
                 # 2- For each valid result, make a new trace.
-                for d in new_defs:
-                    args = d.generating_arguments()
+                for definition in new_defs:
+                    args = definition.generating_arguments()
 
                     new_assignments = self._unify_args(args, s.arguments, trace)
 
                     if new_assignments is not None:
-                        u = trace.universe.clone()
-                        subdef_name = f'!{self.name}{u.next_id()}'
-                        try:
-                          new_subdefs = u.define(subdef_name, d)
-                        except:
-                            import pdb; pdb.set_trace()
+                        u = (definition
+                             if isinstance(definition, Trace)
+                             else trace).universe.clone()
+
+                        subdef_name = f'!tac{u.next_id()}'
+                        d.define(u, subdef_name, definition)
+
                         new_assignments[s.result] = subdef_name
                         new_traces.append(Trace(
                             new_assignments,
                             u,
-                            trace.definitions + [(subdef_name, d)]))
+                            trace.definitions + [(subdef_name, definition)]))
 
             traces = new_traces
 
@@ -402,7 +405,7 @@ class TacticsTest(unittest.TestCase):
         d = domain.make_domain('subst-eval')
         problem = d.start_derivation('(= x (+ (+ 1 2) 3))', '(= x ?)')
 
-        traces = tactic.execute(problem.universe)
+        traces = tactic.execute(problem.universe, d)
 
         # This tactic should produce only one result here.
         assert len(traces) == 1
@@ -446,6 +449,39 @@ class TacticsTest(unittest.TestCase):
 
         assert t1.is_generalization_of(t1)
         assert t2.is_generalization_of(t2)
+
+    def test_tactic_composition(self):
+        import domain
+        import policy
+
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b'], '?1'),
+            ]
+        )
+
+        t2 = Tactic(
+            't2',
+            [
+                Step('t1', ['?a', '?b'], '?0'),
+                Step('t1', ['?c', '?0'], '?1'),
+            ]
+        )
+
+        d = domain.make_domain('subst-eval', [t1, t2])
+        problem = d.start_derivation('(= x (+ (+ 1 2) 3))', '(= x ?)')
+
+        pi = policy.ConstantPolicy('t2')
+        episode = pi.beam_search(problem, depth=2, beam_size=10)
+
+        # Only way to solve the problem within this depth is with the tactic twice.
+        assert episode.success
+        assert episode.actions[0] == 't2'
+
+        episode.recover_arguments(d)
+        print(episode.arguments)
 
     def test_tactic_beam_search(self):
         import domain
@@ -493,7 +529,6 @@ class TacticsTest(unittest.TestCase):
 
 def induce(cfg: DictConfig):
     from domain import make_domain
-
 
     with open(cfg.episodes, 'rb') as f:
         episodes = pickle.load(f)

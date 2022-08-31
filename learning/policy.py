@@ -308,7 +308,7 @@ class Policy(nn.Module):
                     beam = sorted(beam, key=lambda s: -s.logprob)[:beam_size]
 
                 for e in beam:
-                    e.solution = e.solution.push_action(e.action)
+                    e.solution = e.solution.push_action(e.action, problem.domain)
                     e.state = e.solution.format(MAX_STATE_LENGTH)
 
             return recover_episode(problem, beam[0], False)
