@@ -476,7 +476,6 @@ class TacticsTest(unittest.TestCase):
         pi = policy.ConstantPolicy('t2')
         episode = pi.beam_search(problem, depth=2, beam_size=10)
 
-        # Only way to solve the problem within this depth is with the tactic twice.
         assert episode.success
         assert episode.actions[0] == 't2'
 
