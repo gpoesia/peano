@@ -174,32 +174,36 @@ class TrainerAgent:
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
 
-                    latest_episodes = []
-
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
                         logger.info('Waiting for searcher #%d...', i)
                         result_i = f.result()
-                        latest_episodes.extend(result_i.episodes)
                         episodes.extend(result_i.episodes)
 
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
-                        proposals = induce_tactics(latest_episodes,
-                                                   self.config.n_tactics,
-                                                   self.config.min_tactic_score,
-                                                   tactics)
-                        new_tactics = []
+                        for _ in range(self.config.n_tactics):
+                            proposals = induce_tactics(episodes,
+                                                       self.config.n_tactics,
+                                                       self.config.min_tactic_score,
+                                                       tactics)
+                            if proposals:
+                                # Take the top proposal, incorporate it and repeat.
+                                new_tactic = (proposals[0]
+                                              .rename(f'tactic{len(tactics):03d}'))
 
-                        for p in proposals:
-                            new_tactics.append(p.rename(f'tactic{len(tactics) + len(new_tactics):03d}'))
+                                logging.info('Incorporating new tactic:\n%s\n', new_tactic)
+                                tactics.append(new_tactic)
 
-                        logging.info('Incorporating %d new tactics', len(new_tactics))
+                                for i, e in enumerate(episodes):
+                                    episodes[i] = new_tactic.rewrite_episode(e)
 
-                        for t in new_tactics:
-                            logging.info('%s\n', t)
-
-                        tactics.extend(new_tactics)
+                        logging.info('Recomputing negatives after tactic induction...')
+                        for e in episodes:
+                            if e.success:
+                                d = make_domain(e.domain, tactics)
+                                e.recompute_negatives(d)
+                        logging.info('Done.')
 
                     self.searcher_futures = []
 

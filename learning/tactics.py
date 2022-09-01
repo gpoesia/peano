@@ -352,7 +352,7 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
     print(len(tactics_from_slices), 'tactics from slices.')
 
     if len(tactics_from_slices) > MAX_SLICES:
-        tactics_from_slices = random.sample(tactics_from_slices, MAX_SLICES)
+        tactics_from_slices = tactics_from_slices[-MAX_SLICES:]
 
     lggs = []
 
