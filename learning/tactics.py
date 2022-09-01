@@ -13,6 +13,7 @@ from omegaconf import DictConfig
 
 import peano
 from policy import Episode
+from solution import Solution
 
 
 def next_parameter_name(n: int):
@@ -105,7 +106,8 @@ class Tactic:
     def from_solution_slice(name: str,
                             start_index: int,
                             arrows: list[str],
-                            arguments: list[list[str]]) -> 'Tactic':
+                            arguments: list[list[str]],
+                            abstract_constants: bool = True) -> 'Tactic':
         'Constructs a tactic from a slice of a solution found in a search episode.'
 
         steps = []
@@ -118,7 +120,8 @@ class Tactic:
             rewrites[f'!step{start_index + i}'] = result
             steps.append(Step(arrow, [rewrites.get(a, a) for a in args], result))
 
-        return Tactic(name, steps).abstract_concrete_arguments()
+        t = Tactic(name, steps)
+        return t.abstract_concrete_arguments() if abstract_constants else t
 
     def is_generalization_of(self, rhs: 'Tactic') -> bool:
         '''Returns whether self is equal to or a more general tactic than rhs.
@@ -129,7 +132,7 @@ class Tactic:
         Two tactics are alpha-equivalent iff this returns True for both (a, b) and (b, a).'''
 
         if len(self.steps) != len(rhs.steps):
-            return False
+            return False, None
 
         # Strategy: try to find an assignment of parameters to self that would
         # rewrite self into a2. A parameter of self could rewrite into either
@@ -138,24 +141,24 @@ class Tactic:
 
         for s1, s2 in zip(self.steps, rhs.steps):
             if s1.arrow != s2.arrow:
-                return False
+                return False, None
 
             for a1, a2 in zip(s1.arguments, s2.arguments):
                 if is_parameter_name(a1):
                     if a1 in assignment:
                         if assignment[a1] != a2:
-                            return False
+                            return False, None
                     else:
                         assignment[a1] = a2
                 elif a1 != a2:
-                    return False
+                    return False, None
 
-        return True
+        return True, assignment
 
     def is_comparable_to(self, rhs: 'Tactic') -> bool:
         '''Returns whether self and rhs belong to the same lattice with
         generalize() being the meet operator.'''
-        return  self.is_generalization_of(rhs) or rhs.is_generalization_of(self)
+        return self.is_generalization_of(rhs)[0] or rhs.is_generalization_of(self)[0]
 
 
     def generalize(self, t: 'Tactic', lgg_name: str) -> Optional['Tactic']:
@@ -296,6 +299,37 @@ class Tactic:
 
         return assignments
 
+    def rewrite_episode(self, e: Episode, d: 'Domain') -> Episode:
+        if not e.success:
+            return e
+
+        e_arrows = e.actions[::2]
+        e_arguments = e.arguments[1::2]
+
+        for i in range(len(e_arrows) - len(self.steps) + 1):
+            arrows = e_arrows[i:i + len(self.steps)]
+            arguments = e_arguments[i:i + len(self.steps)]
+
+            t_i = Tactic.from_solution_slice('slice', i, arrows, arguments, False)
+
+            is_g, arguments = self.is_generalization_of(t_i)
+
+            if is_g:
+                actions = (e.actions[:2*i] +
+                           [self.name] +
+                           e.actions[2*(i + len(self.steps)) - 1:])
+                states = Solution.states_from_episode(e.problem,
+                                                      e.goal,
+                                                      actions)
+                e_rw = Episode(e.problem, e.goal, e.domain, e.success,
+                               actions, None, states, None)
+
+                e_rw.recover_arguments(d)
+
+                return self.rewrite_episode(e_rw, d)
+
+        return e
+
 
 # Maximum number of solution slices to use for inducing tactics.
 MAX_SLICES = 10**4
@@ -341,8 +375,9 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
             continue
 
         occurrences = 0
+
         for s in tactics_from_slices:
-            if t.is_generalization_of(s):
+            if t.is_generalization_of(s)[0]:
                 occurrences += 1
         scored_lggs.append((t, occurrences))
 
@@ -437,18 +472,18 @@ class TacticsTest(unittest.TestCase):
         lgg = t1.generalize(t2, 't1+t2')
 
         assert lgg is not None
-        assert lgg.is_generalization_of(t1)
-        assert lgg.is_generalization_of(t2)
-        assert lgg.is_generalization_of(lgg)
+        assert lgg.is_generalization_of(t1)[0]
+        assert lgg.is_generalization_of(t2)[0]
+        assert lgg.is_generalization_of(lgg)[0]
 
-        assert not t1.is_generalization_of(lgg)
-        assert not t2.is_generalization_of(lgg)
+        assert not t1.is_generalization_of(lgg)[0]
+        assert not t2.is_generalization_of(lgg)[0]
 
-        assert not t1.is_generalization_of(t2)
-        assert not t2.is_generalization_of(t1)
+        assert not t1.is_generalization_of(t2)[0]
+        assert not t2.is_generalization_of(t1)[0]
 
-        assert t1.is_generalization_of(t1)
-        assert t2.is_generalization_of(t2)
+        assert t1.is_generalization_of(t1)[0]
+        assert t2.is_generalization_of(t2)[0]
 
     def test_tactic_composition(self):
         import domain
@@ -480,7 +515,6 @@ class TacticsTest(unittest.TestCase):
         assert episode.actions[0] == 't2'
 
         episode.recover_arguments(d)
-        print(episode.arguments)
 
     def test_tactic_beam_search(self):
         import domain
@@ -508,22 +542,40 @@ class TacticsTest(unittest.TestCase):
         assert episode.actions[0] == 'eval_rewrite_x2'
         assert episode.actions[2] == 'eval_rewrite_x2'
 
-    def test_beam_search_without_tactics(self):
-        # The policy execution code had to be generalize to accomodate for tactics.
-        # Here we test that doesn't break execution without tactics. This test should
-        # likely be in policy though.
+    def test_rewrite_episode_using_tactic(self):
         import domain
         import policy
 
         d = domain.make_domain('subst-eval', [])
-        problem = d.start_derivation('(= x (* 2 2))', '(= x ?)')
-        pi = policy.RandomPolicy()
-        episode = pi.beam_search(problem, depth=4, beam_size=1000)
+        problem = d.start_derivation('(= x (* 10 (* 2 2)))', '(= x ?)')
+        pi = policy.ConstantPolicy({'eval', 'rewrite'})
+        episode = pi.beam_search(problem, depth=8, beam_size=1000)
 
-        # Only way to solve the problem within this depth is with the tactic twice.
         assert episode.success
         assert episode.actions[0] == 'eval'
         assert episode.actions[2] == 'rewrite'
+        assert episode.actions[4] == 'eval'
+        assert episode.actions[6] == 'rewrite'
+
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b'], '?1'),
+            ]
+        )
+
+        d.load_tactics([t1])
+
+        e_rw = t1.rewrite_episode(episode, d)
+        assert len(e_rw.actions) == 4
+        assert e_rw.actions[0] == 't1'
+        assert e_rw.actions[1] == '(= x (* 10 4))'
+        assert e_rw.actions[2] == 't1'
+        assert e_rw.actions[3] == '(= x 40)'
+
+        e_rw.recompute_negatives(d)
+        assert len(e_rw.negative_actions) == 4
 
 
 def induce(cfg: DictConfig):

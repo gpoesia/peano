@@ -77,10 +77,13 @@ class SearchNode:
 class Episode:
     problem: str
     goal: str = None
+    domain: str = None
     success: bool = False
     actions: list[str] = field(default_factory=list)
     arguments: list[str] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
+    # FIXME: this is obsolete, and now re-computed right before training.
+    # Kept here for now to keep pickle-compatibility.
     negative_actions: list[list[str]] = field(default_factory=list)
     searched_nodes: list[SearchNode] = None
 
@@ -110,11 +113,11 @@ class Episode:
 
             for j in range(0, len(ablated_solution), 2):
                 arrow, result = ablated_solution[j:j+2]
-                outcomes = u.apply(arrow)
+                outcomes = domain.apply(arrow, u)
                 found = False
 
                 for o in outcomes:
-                    if u.value_of(o) == result:
+                    if domain.value_of(u, o) == result:
                         found = True
                         u.define(f'!step{j // 2}', o)
                         break
@@ -157,6 +160,28 @@ class Episode:
             domain.define(problem.universe, f'!step{i}', definitions[0])
 
         self.arguments = arguments
+
+    def recompute_negatives(self, domain: 'Domain'):
+        problem = domain.start_derivation(self.problem, self.goal)
+        solution = Solution.from_problem(problem)
+        negatives = []
+
+        for a in self.actions:
+            successors = solution.successors(domain)
+            positive_a, negatives_a = None, []
+
+            for s in successors:
+                if s.value == a:
+                    positive_a = s
+                else:
+                    negatives_a.append(s.value)
+
+            negatives.append(negatives_a)
+            if positive_a is None:
+                breakpoint()
+            solution = solution.push_action(positive_a, domain)
+
+        self.negative_actions = negatives
 
 
 @dataclass
@@ -210,6 +235,7 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
 
     e = Episode(problem.description,
                 problem.goal,
+                problem.domain_name(),
                 success,
                 actions[::-1],
                 arguments[::-1],
@@ -460,10 +486,10 @@ class ConstantPolicy(Policy):
     'Used for debugging.'
     def __init__(self, arrow, config=None):
         super().__init__()
-        self.arrow = arrow
+        self.arrows = arrow if isinstance(arrow, set) else set([arrow])
 
     def score_arrows(self, arrows: list[str], state: torch.Tensor) -> torch.Tensor:
-        return torch.tensor([int(a == self.arrow) for a in arrows])
+        return torch.tensor([10000 * int(a in self.arrows) for a in arrows])
 
     def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
         return torch.rand((len(outcomes),))
@@ -953,7 +979,9 @@ class ContrastivePolicy(Policy):
         output, _ = self.lm(input)
         return output[0, :, :]
 
-    def fit(self, dataset: list[Episode], checkpoint_callback=lambda: None):
+    def fit(self,
+            dataset: list[Episode],
+            checkpoint_callback=lambda: None):
         self.train()
 
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -996,14 +1024,13 @@ class TestDataPreparation(unittest.TestCase):
             'solution_augmentation_rate': 0.2,
         })
         policy = ContrastivePolicy(cfg)
-        episode = Episode('(= x (+ 10 20))', '(= x ?)', True,
+        episode = Episode('(= x (+ 10 20))', '(= x ?)', 'subst-eval', True,
                           actions=['eval', '(= (+ 10 20) 30)', 'rewrite', '(= x 30)'],
                           states=["s1", "s2", "s3", "s4", "s5"],
                           negative_actions=[['a', 'b'], ['o1'], ['a', 'b'], ['o2']])
 
-        examples = policy.extract_examples(episode, [('haha', 'hoho'), ('hihi', 'hehe')])
-        breakpoint()
-        print('Hello')
+        e = policy.extract_examples(episode, [('haha', 'hoho'), ('hihi', 'hehe')])
+        assert len(e) > 4
 
 
 def make_policy(config):

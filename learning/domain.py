@@ -25,6 +25,9 @@ class Problem:
         self.goal = goal
         self.domain = domain
 
+    def domain_name(self):
+        return [k for k, v in DOMAINS.items() if self.domain.__class__ is v][0]
+
 
 class Domain:
     def __init__(self):
@@ -450,28 +453,29 @@ class MixedDomain(Domain):
         raise NotImplementedError('Should call derivation_actions from problem.domain')
 
 
+DOMAINS = {
+    'equations': EquationsDomain,
+    'counting': CountingDomain,
+    'equations-ct': EquationsCtDomain,
+    'subst-eval': SubstitutionAndEvaluatingExpressions,
+    'comb-like': CombiningLikeTerms,
+    'one-step-add-eq': OneStepAdditionAndSubtractionEquations,
+    'one-step-mul-eq': OneStepMultiplicationAndDivisionEquations,
+    'two-step-eq': TwoStepEquations,
+    'simpl0': Simpl0Domain,
+    'simpl1': Simpl1Domain,
+    'simpl2': Simpl2Domain,
+    'simpl3': Simpl3Domain,
+    'simpl4': Simpl4Domain,
+}
+
 def make_domain(name, tactics=[]):
     # Example syntax: mix(equations, comb-like, simpl0)
     if name.startswith('mix(') and name.endswith(')'):
         names = list(name[len('mix('):-1].split(','))
         return MixedDomain(list(map(make_domain, names)))
 
-    d = ({
-        'equations': EquationsDomain,
-        'counting': CountingDomain,
-        'equations-ct': EquationsCtDomain,
-        'subst-eval': SubstitutionAndEvaluatingExpressions,
-        'comb-like': CombiningLikeTerms,
-        'one-step-add-eq': OneStepAdditionAndSubtractionEquations,
-        'one-step-mul-eq': OneStepMultiplicationAndDivisionEquations,
-        'two-step-eq': TwoStepEquations,
-        'simpl0': Simpl0Domain,
-        'simpl1': Simpl1Domain,
-        'simpl2': Simpl2Domain,
-        'simpl3': Simpl3Domain,
-        'simpl4': Simpl4Domain,
-    })[name.strip()]()
-
+    d = DOMAINS[name.strip()]()
     d.load_tactics(tactics)
 
     return d
