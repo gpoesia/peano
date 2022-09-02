@@ -315,21 +315,33 @@ class Tactic:
 
             t_i = Tactic.from_solution_slice('slice', i, arrows, arguments, False)
 
-            is_g, arguments = self.is_generalization_of(t_i)
+            is_g, _ = self.is_generalization_of(t_i)
 
             if is_g:
-                actions = (e.actions[:2*i] +
-                           [self.name] +
-                           e.actions[2*(i + len(self.steps)) - 1:])
-                states = Solution.states_from_episode(e.problem,
-                                                      e.goal,
-                                                      actions)
-                e_rw = Episode(e.problem, e.goal, e.domain, e.success,
-                               actions, None, states, None)
+                # Check if any of the intermediate results are used later in the episode.
+                # If they are, then this rewrite cannot be done, since it would hide those
+                # results inside the tactic's local scope.
+                intermediate_results = {f'!step{j}' for j in range(i, i + len(self.steps) - 1)}
+                is_scope_barrier_violated = False
 
-                e_rw.recover_arguments(d)
+                for a in arguments[i + len(self.steps):]:
+                    if set(a).intersection(intermediate_results):
+                        is_scope_barrier_violated = True
+                        break
 
-                return self.rewrite_episode(e_rw, d)
+                if not is_scope_barrier_violated:
+                    actions = (e.actions[:2*i] +
+                               [self.name] +
+                               e.actions[2*(i + len(self.steps)) - 1:])
+                    states = Solution.states_from_episode(e.problem,
+                                                          e.goal,
+                                                          actions)
+                    e_rw = Episode(e.problem, e.goal, e.domain, e.success,
+                                   actions, None, states, None)
+
+                    e_rw.recover_arguments(d)
+
+                    return self.rewrite_episode(e_rw, d)
 
         return e
 
