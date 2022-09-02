@@ -62,10 +62,12 @@ class Domain:
             subdefs = []
 
             for i, (d_name, d) in enumerate(definition.definitions):
+                is_last = (i + 1) == len(definition.definitions)
                 subdef_name = (name
-                               if toplevel and name and (i + 1 == len(definition.definitions))
+                               if toplevel and name and is_last
                                else d_name)
-                subdefs.extend(self.define(universe, subdef_name, d, False))
+                subdefs.extend(self.define(universe, subdef_name, d,
+                                           toplevel and is_last))
 
             return subdefs
 
