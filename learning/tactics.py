@@ -324,7 +324,7 @@ class Tactic:
                 intermediate_results = {f'!step{j}' for j in range(i, i + len(self.steps) - 1)}
                 is_scope_barrier_violated = False
 
-                for a in arguments[i + len(self.steps):]:
+                for a in e_arguments[i + len(self.steps):]:
                     if set(a).intersection(intermediate_results):
                         is_scope_barrier_violated = True
                         break
