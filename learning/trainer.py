@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
-                   rerank_top_k, model_type, model_path, seeds, device):
+                   epsilon, rerank_top_k, model_type, model_path, seeds, device):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
 
     m = load_search_model(model_type, model_path, device=device)
@@ -66,6 +66,7 @@ class TrainerAgent:
         self.algorithm = config.algorithm
         self.train_domains = config.train_domains
         self.eval_domains = config.eval_domains
+        self.epsilon = config.epsilon
         self.config = config
         self.searcher_futures = []
 
@@ -149,6 +150,7 @@ class TrainerAgent:
                                 tactics=tactics,
                                 max_nodes=self.max_nodes,
                                 max_depth=self.max_depth,
+                                epsilon=self.epsilon,
                                 rerank_top_k=self.rerank_top_k,
                                 model_type=self.model_type,
                                 model_path=last_checkpoint,
@@ -170,6 +172,7 @@ class TrainerAgent:
                                 self.max_depth,
                                 output_path=f'eval-episodes-{d}-{it}.pkl',
                                 debug=False,
+                                epsilon=0,
                             )
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})

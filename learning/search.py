@@ -339,13 +339,14 @@ class SearcherAgent:
     from the a TrainerAgent.
     '''
 
-    def __init__(self, domain, model, max_nodes, max_depth,
+    def __init__(self, domain, model, max_nodes, max_depth, epsilon,
                  algorithm='best-first-search', debug=False):
 
         self.domain = domain
         self.algorithm = algorithm
         self.model = model
         self.max_nodes = max_nodes
+        self.epsilon = epsilon
         self.max_depth = max_depth
         self.debug = debug
 
@@ -386,7 +387,8 @@ class SearcherAgent:
                     episode = self.model.beam_search(
                         problem,
                         depth=self.max_depth,
-                        beam_size=math.ceil(self.max_nodes / self.max_depth))
+                        beam_size=math.ceil(self.max_nodes / self.max_depth),
+                        epsilon=self.epsilon)
 
             if episode.success:
                 logger.info('Solved %s', episode.problem)
