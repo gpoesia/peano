@@ -236,7 +236,7 @@ class Tactic:
 
         return Tactic(self.name, new_steps)
 
-    def execute(self, u: peano.PyUniverse, d: 'Domain', toplevel = True) -> list[Trace]:
+    def execute(self, u: peano.PyUniverse, d: 'Domain', toplevel = True, scope: list[str] = []) -> list[Trace]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
 
         traces = [Trace({}, u, [])]
@@ -248,7 +248,10 @@ class Tactic:
                 # 1- Execute the step.
                 # NOTE: apply is fully non-deterministic. We should replace this with a new
                 # API for specifying all known parameters, and only being non-deterministic on the holes.
-                new_defs = d.apply(s.arrow, trace.universe, False)
+                new_defs = d.apply(s.arrow, trace.universe, False,
+                                   (scope or []) + [v
+                                    for k, v in trace.assignments.items()
+                                    if is_result_name(k)])
 
                 # 2- For each valid result, make a new trace.
                 for definition in new_defs:
@@ -577,6 +580,39 @@ class TacticsTest(unittest.TestCase):
         e_rw.recompute_negatives(d)
         assert len(e_rw.negative_actions) == 4
 
+
+    def test_tactics_scoping(self):
+        import domain
+        import policy
+
+        # This test should fail if we disable scoping in the environment,
+        # e.g. by returning false in
+        # environment/src/universe/derivation.rs: fn _of_scope()
+
+        d = domain.make_domain('subst-eval', [])
+        problem = d.start_derivation('(= x (+ (+ 9 0) 0))', '(= x ?)')
+
+        t1 = Tactic(
+            'tactic000',
+            [
+                Step('+0_id', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b'], '?1'),
+            ]
+        )
+
+        d.load_tactics([t1])
+
+        traces = t1.execute(problem.universe, d)
+
+        for t in traces:
+            if d.value_of(t.universe, t.definitions[-1][1]) == '(= x (+ 9 0))':
+                # We should not be able to apply a rewrite using the result of +0_id to
+                # get (= x 9), since the result of +0_id should be local to the tactic.
+                defs = t.universe.apply('rewrite')
+
+                for d_i in defs:
+                    if t.universe.value_of(d_i) == '(= x 9)':
+                        assert False, "This must have used a local result from the tactic"
 
 def induce(cfg: DictConfig):
     from domain import make_domain

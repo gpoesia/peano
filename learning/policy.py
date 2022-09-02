@@ -178,6 +178,7 @@ class Episode:
 
             negatives.append(negatives_a)
             if positive_a is None:
+                logger.warn('')
                 breakpoint()
             solution = solution.push_action(positive_a, domain)
 

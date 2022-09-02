@@ -99,7 +99,7 @@ impl PyUniverse {
     }
 
     pub fn apply(&self, action: String) -> Vec<PyDefinition> {
-        self.universe.application_results(&action)
+        self.universe.application_results(&action, &None)
             .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
@@ -164,7 +164,7 @@ impl PyUniverse {
 
             let j = rng.gen_range(0..actions.len());
 
-            let results = self.universe.application_results(&actions[j]);
+            let results = self.universe.application_results(&actions[j], &None);
 
             if results.len() == 0 {
                 continue;
@@ -192,8 +192,8 @@ impl PyDerivation {
         self.universe.actions().map(|a| a.clone()).collect()
     }
 
-    pub fn apply(&self, action: String) -> Vec<PyDefinition> {
-        self.universe.application_results(&action)
+    pub fn apply(&self, action: String, scope: Option<Vec<String>>) -> Vec<PyDefinition> {
+        self.universe.application_results(&action, &scope.map(|v| v.into_iter().collect()))
             .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
@@ -205,7 +205,7 @@ impl PyDerivation {
         let mut result = Vec::new();
         for a in actions {
             result.extend(
-                self.universe.application_results(&a)
+                self.universe.application_results(&a, &None)
                              .into_iter().map(|d| PyDefinition { def: d, action: a.clone() }));
         }
         result

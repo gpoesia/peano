@@ -42,11 +42,15 @@ class Domain:
     def get_tactic(self, name: str) -> 'Tactic':
         return self.tactics.get(name)
 
-    def apply(self, arrow: str, universe: peano.PyDerivation, toplevel=True) -> list[peano.PyDefinition]:
+    def apply(self,
+              arrow: str,
+              universe: peano.PyDerivation,
+              toplevel: bool = True,
+              scope: list[str] = None) -> list[peano.PyDefinition]:
         if arrow in self.tactics:
-            return self.tactics[arrow].execute(universe, self, toplevel)
+            return self.tactics[arrow].execute(universe, self, toplevel, scope)
 
-        return universe.apply(arrow)
+        return universe.apply(arrow, scope)
 
     def value_of(self, universe, definition) -> str:
         if hasattr(definition, 'definitions'):

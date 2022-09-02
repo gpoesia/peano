@@ -120,7 +120,7 @@ impl Shell {
     }
 
     pub fn apply(&mut self, action: &str, rl: &mut Editor<()>) -> () {
-        let defs = self.universe.application_results(&action.to_string());
+        let defs = self.universe.application_results(&action.to_string(), &None);
 
         if defs.len() == 0 {
             println!("No results.");
