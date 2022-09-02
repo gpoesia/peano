@@ -119,7 +119,7 @@ class Episode:
                 for o in outcomes:
                     if domain.value_of(u, o) == result:
                         found = True
-                        u.define(f'!step{j // 2}', o)
+                        domain.define(u, f'!step{j // 2}', o)
                         break
 
                 if not found:
@@ -178,7 +178,6 @@ class Episode:
 
             negatives.append(negatives_a)
             if positive_a is None:
-                logger.warn('')
                 breakpoint()
             solution = solution.push_action(positive_a, domain)
 

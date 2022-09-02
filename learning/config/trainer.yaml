@@ -29,7 +29,7 @@ trainer:
     algorithm: 'policy-beam-search'
 
     induce_tactics: true
-    n_tactics: 5
+    n_tactics: 3
     min_tactic_score: 50
 
     model:

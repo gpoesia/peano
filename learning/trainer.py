@@ -196,7 +196,10 @@ class TrainerAgent:
                                 tactics.append(new_tactic)
 
                                 for i, e in enumerate(episodes):
-                                    episodes[i] = new_tactic.rewrite_episode(e)
+                                    d = make_domain(e.domain, tactics)
+                                    episodes[i] = new_tactic.rewrite_episode(e, d)
+                            else:
+                                break
 
                         logging.info('Recomputing negatives after tactic induction...')
                         for e in episodes:
