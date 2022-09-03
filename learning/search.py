@@ -399,8 +399,10 @@ class SearcherAgent:
         return SearcherResults(episodes)
 
 
-def run_search_on_batch(domain, seeds, model, algorithm, max_nodes, max_depth, output_path, debug):
-    searcher = SearcherAgent(domain, model, max_nodes, max_depth, algorithm, debug)
+def run_search_on_batch(domain, seeds, model, algorithm, max_nodes,
+                        max_depth, epsilon, output_path, debug):
+    searcher = SearcherAgent(domain, model, max_nodes, max_depth,
+                             epsilon, algorithm, debug)
 
     result = searcher.run_batch(seeds)
     print(f'Solved {result.successes()}/{len(seeds)}')
@@ -432,15 +434,16 @@ def load_search_model(model_type, model_path, rerank_top_k=200, device='cpu'):
 
 
 def run_search_with_model(domain, seeds, model_path, device, algorithm, output_path,
-                          debug, max_nodes=400, max_depth=20, rerank_top_k=200):
+                          debug, epsilon=0.0, max_nodes=400, max_depth=20, rerank_top_k=200):
     if model_path is not None:
         m = torch.load(model_path, map_location=device)
         m.to(device)
         m.eval()
 
-        h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=rerank_top_k)
+        if isinstance(m, SearchHeuristic):
+            h = TwoStageUtilityFunction(LengthUtilityFunction(), m, k=rerank_top_k)
     else:
-        h = LengthUtilityFunction()
+        h = RandomPolicy()
 
     return run_search_on_batch(domain,
                                seeds,
@@ -448,6 +451,7 @@ def run_search_with_model(domain, seeds, model_path, device, algorithm, output_p
                                algorithm,
                                max_nodes,
                                max_depth,
+                               epsilon,
                                output_path,
                                debug)
 
@@ -455,15 +459,23 @@ def run_search_with_model(domain, seeds, model_path, device, algorithm, output_p
 @hydra.main(version_base="1.2", config_path="config", config_name="search")
 def main(cfg: DictConfig):
     if cfg.task == 'solve':
-        run_utility_function(make_domain(cfg.domain),
-                             range(cfg.range[0], cfg.range[1]),
-                             to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
-                             get_device(cfg),
-                             cfg.algorithm,
-                             to_absolute_path(cfg.output),
-                             cfg.get('debug'),
-                             max_nodes=200,
-                             max_depth=20)
+        tactics = []
+
+        if 'tactics' in cfg:
+            with open(cfg.tactics, 'rb') as f:
+                tactics = pickle.load(f)
+                print('Loaded', len(tactics), 'tactics.')
+
+        run_search_with_model(make_domain(cfg.domain, tactics),
+                              range(cfg.range[0], cfg.range[1]),
+                              to_absolute_path(cfg.model_path) if 'model_path' in cfg else None,
+                              get_device(cfg),
+                              cfg.algorithm,
+                              to_absolute_path(cfg.output),
+                              cfg.get('debug'),
+                              cfg.get('epsilon', 0.0),
+                              max_nodes=cfg.get('max_nodes', 200),
+                              max_depth=cfg.get('max_depth', 20))
     else:
         raise ValueError(f'Unknown command {cfg.task}')
 

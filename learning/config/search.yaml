@@ -1,4 +1,4 @@
-domain: equations
+domain: comb-like
 range: [0, 200]
 output: episodes.pkl
-algorithm: best-first-search
+algorithm: policy-beam-search
