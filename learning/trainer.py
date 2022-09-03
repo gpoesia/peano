@@ -164,7 +164,7 @@ class TrainerAgent:
                     for d in self.eval_domains:
                         if not os.path.exists(f'eval-episodes-{d}-{it}.pkl'):
                             eval_results = run_search_on_batch(
-                                make_domain(d),
+                                make_domain(d, tactics),
                                 eval_seeds,
                                 m,
                                 self.algorithm,
