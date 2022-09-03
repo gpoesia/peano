@@ -441,12 +441,16 @@ n : nat.
 
 
 class MixedDomain(Domain):
-    def __init__(self, subdomains):
+    def __init__(self, subdomains, weights=None):
         super().__init__()
         self.subdomains = subdomains
+        weights = np.array(weights or ([1] * len(subdomains)))
+        self.probs = weights / weights.sum()
 
     def generate_derivation(self, seed: int) -> Problem:
-        domain = self.subdomains[seed % len(self.subdomains)]
+        np.random.seed(seed)
+        domain = self.subdomains[np.random.choice(list(range(len(self.probs))),
+                                                  p=self.probs)]
         return domain.generate_derivation(seed)
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
@@ -479,7 +483,17 @@ def make_domain(name, tactics=[]):
     # Example syntax: mix(equations, comb-like, simpl0)
     if name.startswith('mix(') and name.endswith(')'):
         names = list(name[len('mix('):-1].split(','))
-        return MixedDomain(list(map(make_domain, names)))
+        weights = []
+
+        for i in range(len(names)):
+            if names[i].find('=') == -1:
+                weights.append(1)
+            else:
+                names[i], weight = names[i].split('=')
+                names[i] = names[i].strip()
+                weights.append(int(weight))
+
+        return MixedDomain(list(map(make_domain, names)), weights)
 
     d = DOMAINS[name.strip()]()
     d.load_tactics(tactics)
