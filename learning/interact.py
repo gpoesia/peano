@@ -14,8 +14,9 @@ from environment import *
 import util
 from util import choose_from_list
 from domain import EquationsDomain, make_domain
-from policy import encode_batch, decode_batch, EOS, Episode as PolicyEpisode
+from policy import encode_batch, decode_batch, EOS, Episode as PolicyEpisode, RandomPolicy
 from search import batched_forward_search, ProofSearchEpisode
+from solution import Solution
 
 
 def _input_problem(domain, derivation=True):
@@ -34,17 +35,22 @@ def _input_problem(domain, derivation=True):
                             lambda p: p.description)
 
 
-def run_beam_search(agent_path, domain, device):
-    agent = torch.load(agent_path, map_location=device)['agent']
-    print('Loaded', agent_path, ':', util.format_parameter_count(agent.policy), 'parameters.')
-
+def run_random_beam_search(domain):
+    pi = RandomPolicy()
     p = _input_problem(domain)
+    succ = 0
+    solution = None
 
-    if p is not None:
-        episode = agent.policy.rollout(domain, p, 8)
-        
-    breakpoint()
-    'Debug mode'
+    for i in tqdm(range(10)):
+        episode = pi.beam_search(p, 10, 1, 5000)
+        succ += episode.success
+
+        if episode.success:
+            solution = episode
+
+    print(f'Success rate: {succ}/10')
+    if solution:
+        print('Solution:', solution.actions)
 
 
 def run_best_first_search(agent_path, domain, device):
@@ -87,39 +93,18 @@ def evaluate_agent(agent_path, d, device, rollout_type):
 def interact_with_environment(domain):
     i, p = 0, _input_problem(domain)
     prob = 1
-    solution = [(p.description, 'assumption')]
+    sol = Solution.from_problem(p)
 
-    def print_solution():
-        print('### Solution:')
-        for j, (v, a) in enumerate(solution):
-            print(f'#{j:02d} {v} by {a}')
-
-    while not domain.derivation_done(p.universe):
-        print_solution()
-
-        actions = domain.derivation_actions(p.universe)
-
-        a = choose_from_list('Arrow to apply:', actions)
-
+    while not domain.derivation_done(sol.derivation):
+        print('### Solution:\n', sol.format(100))
+        actions = sol.successors(domain)
+        a = choose_from_list('Action:', actions)
         prob *= 1 / len(actions)
-
-        outcomes = p.universe.apply(a)
-
-        if not outcomes:
-            print('No result!')
-            continue
-
-        o = choose_from_list('Result to use:', outcomes)
-
-        prob *= 1 / len(outcomes)
-
-        p.universe.define(f'!step{i}', o)
-        solution.append((p.universe.value_of(o), a))
-
+        sol = sol.push_action(a, domain)
         i += 1
 
     print('Solved in', i, 'steps!')
-    print_solution()
+    print('Solution:\n', sol.format(100))
     print('Probability of this trajectory for a random policy:', prob)
 
 
@@ -262,6 +247,7 @@ if __name__ == '__main__':
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--print', help='Pretty print solved episodes from the given pickle file.', type=str)
     parser.add_argument('--print-tactics', help='Pretty print generated tactics from the given pickle file.', type=str)
+    parser.add_argument('--tactics', help='Load tactics in the domain.', type=str)
     parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
     parser.add_argument('--policy', help='Interact with a pre-trained policy', action='store_true')
@@ -275,6 +261,10 @@ if __name__ == '__main__':
 
     device = torch.device('cpu') if not opt.gpu else torch.device(opt.gpu)
 
+    if opt.tactics:
+        with open(opt.tactics, 'rb') as f:
+            domain.load_tactics(pickle.load(f))
+
     logging.basicConfig()
 
     if opt.verbose:
@@ -286,7 +276,7 @@ if __name__ == '__main__':
                        else 'best-first-search' if opt.best_first_search
                        else 'greedy')
     elif opt.beam_search:
-        run_beam_search(opt.agent, domain, device)
+        run_random_beam_search(domain)
     elif opt.best_first_search:
         run_best_first_search(opt.agent, domain, device)
     elif opt.environment:
