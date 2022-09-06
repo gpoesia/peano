@@ -123,8 +123,8 @@ div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 +_assoc_l : [((+ (+ 'a 'b) 'c) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
 +_assoc_r : [((+ 'a (+ 'b 'c)) : real) -> (= (+ 'a (+ 'b 'c)) (+ (+ 'a 'b) 'c))].
 
-+-_assoc_r : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
-+-_assoc_l : [((+ 'a (- 'b 'c)) : real) -> (= (+ 'a (- 'b 'c)) (- (+ 'a 'b) 'c))].
+-+_assoc : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
++-_assoc : [((+ (- 'a 'b) 'c) : real) -> (= (+ (- 'a 'b) 'c) (+ 'a (- 'c 'b)))].
 
 */_assoc_r : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
 */_assoc_l : [((* 'a (/ 'b 'c)) : real) -> (= (* 'a (/ 'b 'c)) (/ (* 'a 'b) 'c))].
@@ -305,14 +305,15 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
 #            "(= answer (+- x (+- d d)))",
-            "(= answer (+- (+- x d) d))",
-            "(= answer (+- (+- d x) d))",
+            "(= answer (+ (- x d) d))",
+            "(= answer (- (+ x d) d))",
+#            "(= answer (+- (+- d x) d))",
 #            "(= answer (+- d (+- d x)))",
 #            "(= answer (+- d (+- d x)))",
         ], variables=['x', 'answer'], actions=['eval', 'rewrite', '+_comm',
                                                '+_assoc_l', '+_assoc_r',
                                                '+0_id', '-0_id',
-                                               '+-_assoc_l', '+-_assoc_r'])
+                                               '+-_assoc', '-+_assoc'])
 
     @staticmethod
     def _check_pattern(s: str, pattern: str, forbidden_constants: list[set[str]]):
@@ -355,12 +356,12 @@ class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
         super().__init__([
             "(= (+ x d) d)",
             "(= (- x d) d)",
-            "(= (+ d x) d)",
-            "(= (- d x) d)",
+#            "(= (+ d x) d)",
+#            "(= (- d x) d)",
         ], actions=['eval', 'rewrite', '+_comm',
                     '+0_id', '-0_id',
                     '+_assoc_l', '+_assoc_r',
-                    '+-_assoc_l', '+-_assoc_r',
+                    '+-_assoc', '-+_assoc',
                     'add_eq', 'sub_eq'])
 
 class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):

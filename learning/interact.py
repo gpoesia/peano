@@ -87,35 +87,21 @@ def evaluate_agent(agent_path, d, device, rollout_type):
 def interact_with_environment(domain):
     i, p = 0, _input_problem(domain)
     prob = 1
+    solution = [(p.description, 'assumption')]
+
+    def print_solution():
+        print('### Solution:')
+        for j, (v, a) in enumerate(solution):
+            print(f'#{j:02d} {v} by {a}')
 
     while not domain.derivation_done(p.universe):
+        print_solution()
+
         actions = domain.derivation_actions(p.universe)
 
-        print('State:', domain.derivation_state(p.universe))
         a = choose_from_list('Arrow to apply:', actions)
 
         prob *= 1 / len(actions)
-
-        outcomes = p.universe.apply(a)
-        o = choose_from_list('Result to use:', outcomes)
-
-        prob *= 1 / len(outcomes)
-
-        p.universe.define(f'!subd{i}', o)
-        i += 1
-
-    print('Solved in', i, 'steps!')
-    print('Probability of this trajectory for a random policy:', prob)
-
-
-def make_derivation(domain):
-    i, p = 0, _input_problem(domain, derivation=True)
-
-    while not domain.derivation_done(p.universe):
-        actions = domain.derivation_actions(p.universe)
-
-        print('Derivation so far:', domain.derivation_state(p.universe))
-        a = choose_from_list('Arrow to apply:', actions)
 
         outcomes = p.universe.apply(a)
 
@@ -125,8 +111,16 @@ def make_derivation(domain):
 
         o = choose_from_list('Result to use:', outcomes)
 
-        p.universe.define(f'!subd{i}', o)
+        prob *= 1 / len(outcomes)
+
+        p.universe.define(f'!step{i}', o)
+        solution.append((p.universe.value_of(o), a))
+
         i += 1
+
+    print('Solved in', i, 'steps!')
+    print_solution()
+    print('Probability of this trajectory for a random policy:', prob)
 
 
 def run_proof_search(domain):
@@ -268,7 +262,6 @@ if __name__ == '__main__':
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--print', help='Pretty print solved episodes from the given pickle file.', type=str)
     parser.add_argument('--print-tactics', help='Pretty print generated tactics from the given pickle file.', type=str)
-    parser.add_argument('--derivation', help='Solve a problem manually', action='store_true')
     parser.add_argument('--proof-search', help='Run proof seearch on a problem', action='store_true')
     parser.add_argument('--domain', help='Which domain to use.', type=str, default='equations')
     parser.add_argument('--policy', help='Interact with a pre-trained policy', action='store_true')
@@ -298,8 +291,6 @@ if __name__ == '__main__':
         run_best_first_search(opt.agent, domain, device)
     elif opt.environment:
         interact_with_environment(domain)
-    elif opt.derivation:
-        make_derivation(domain)
     elif opt.proof_search:
         run_proof_search(domain)
     elif opt.random_rollouts:
