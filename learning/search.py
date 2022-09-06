@@ -416,6 +416,9 @@ def run_search_on_batch(domain, seeds, model, algorithm, max_nodes,
 
 
 def load_search_model(model_type, model_path, rerank_top_k=200, device='cpu'):
+    if model_type == 'random-policy':
+        return RandomPolicy()
+
     if model_path is not None:
         device = torch.device(device)
         m = torch.load(model_path, map_location=device).to(device)

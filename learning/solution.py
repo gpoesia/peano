@@ -19,6 +19,8 @@ class Action:
 
     definitions: Optional[peano.PyDefinition] = None
 
+    def __str__(self):
+        return self.value
 
 @dataclass
 class Solution:

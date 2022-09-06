@@ -37,7 +37,7 @@ def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
             return pickle.load(f)
 
     algorithm = ('policy-beam-search'
-                 if model_type == 'contrastive-policy'
+                 if model_type in ('contrastive-policy', 'random-policy')
                  else 'best-first-search')
 
     agent = SearcherAgent(make_domain(domain, tactics),
@@ -110,6 +110,8 @@ class TrainerAgent:
                 m = GRUUtilityFunction(self.config.model)
             elif self.config.model.type == 'contrastive-policy':
                 m = ContrastivePolicy(self.config.model)
+            elif self.config.model.type == 'random-policy':
+                m = RandomPolicy()
         else:
             print('Loading', last_checkpoint)
             m = torch.load(last_checkpoint, map_location=device)
