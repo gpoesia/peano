@@ -42,6 +42,7 @@ def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
 
     agent = SearcherAgent(make_domain(domain, tactics),
                           m, max_nodes, max_depth,
+                          epsilon=epsilon,
                           algorithm=algorithm)
 
     episodes = agent.run_batch(seeds)
