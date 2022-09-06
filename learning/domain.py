@@ -298,7 +298,7 @@ class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
             "(= x (op (op d d) d))",
             "(= x (op d (op d d)))",
             "(= x (op (op d d) (op d d)))",
-        ], ['eval', 'rewrite'])
+        ], actions=['eval', 'rewrite'])
 
 
 class CombiningLikeTerms(EquationsDomainFromTemplates):
@@ -370,7 +370,6 @@ class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
             "(= (/ x d) d)",
             "(= (* d x) d)",
         ])
-
 
 class TwoStepEquations(EquationsDomainFromTemplates):
     def __init__(self):
