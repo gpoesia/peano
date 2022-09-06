@@ -91,7 +91,10 @@ class Domain:
 
 
 class EquationsDomain(Domain):
-    def __init__(self, cached_problems='linear-equations.pkl', variables=['x']):
+    def __init__(self,
+                 cached_problems='linear-equations.pkl',
+                 variables=['x'],
+                 actions=None):
         super().__init__()
         blank_domain = peano.get_domain('blank')
 #        self.base_universe = blank_domain.generate(0)
@@ -143,17 +146,17 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 '''
         for v in variables:
             equations_theory += f'{v} : real.'
-#        self.base_universe.incorporate(equations_theory)
         self.base_derivation = peano.PyDerivation()
         self.base_derivation.incorporate(equations_theory)
 
-#        self.action_set = set(self.base_universe.actions())
         self.d_action_set = set(self.base_derivation.actions())
-
-#        self.ignore = self.action_set.union({'real'})
         self.d_ignore = self.d_action_set.union({'real'})
-#        self.action_set -= {'=', '!=', '+', '-', '*', '/'}
-        self.d_action_set -= {'=', '!=', '+', '-', '*', '/', 'eq_refl'}
+
+        if actions is not None:
+            self.d_action_set = actions
+        else:
+            self.d_action_set -= {'=', '!=', '+', '-', '*', '/', 'eq_refl'}
+            self.d_action_set = list(self.d_action_set)
 
         if cached_problems:
             with open(os.path.join(os.path.dirname(__file__), cached_problems), 'rb') as f:
@@ -258,8 +261,8 @@ class Simpl4Domain(SimplificationDomain):
         super().__init__(4)
 
 class EquationsDomainFromTemplates(EquationsDomain):
-    def __init__(self, templates, variables=['x']):
-        super().__init__(None, variables)
+    def __init__(self, templates, variables=['x'], actions=None):
+        super().__init__(None, variables, actions)
         self.templates = templates
 
     def generate_derivation(self, seed: int):
@@ -295,20 +298,21 @@ class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
             "(= x (op (op d d) d))",
             "(= x (op d (op d d)))",
             "(= x (op (op d d) (op d d)))",
-        ])
+        ], ['eval', 'rewrite'])
+
 
 class CombiningLikeTerms(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= answer (+- x (+- d d)))",
+#            "(= answer (+- x (+- d d)))",
             "(= answer (+- (+- x d) d))",
             "(= answer (+- (+- d x) d))",
-            "(= answer (+- d (+- d x)))",
-            "(= answer (+- d (+- d x)))",
-            "(= answer (*/ (*/ x d) d))"
-            "(= answer (*/ d (*/ x d)))"
-        ], variables=['x', 'answer'])
-
+#            "(= answer (+- d (+- d x)))",
+#            "(= answer (+- d (+- d x)))",
+        ], variables=['x', 'answer'], actions=['eval', 'rewrite', '+_comm',
+                                               '+_assoc_l', '+_assoc_r',
+                                               '+0_id', '-0_id',
+                                               '+-_assoc_l', '+-_assoc_r'])
 
     @staticmethod
     def _check_pattern(s: str, pattern: str, forbidden_constants: list[set[str]]):
@@ -353,7 +357,11 @@ class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
             "(= (- x d) d)",
             "(= (+ d x) d)",
             "(= (- d x) d)",
-        ])
+        ], actions=['eval', 'rewrite', '+_comm',
+                    '+0_id', '-0_id',
+                    '+_assoc_l', '+_assoc_r',
+                    '+-_assoc_l', '+-_assoc_r',
+                    'add_eq', 'sub_eq'])
 
 class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
     def __init__(self):
