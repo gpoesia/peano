@@ -180,6 +180,8 @@ class TrainerAgent:
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
 
+                    existing_episodes = len(episodes)
+
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
                         logger.info('Waiting for searcher #%d...', i)
@@ -189,7 +191,7 @@ class TrainerAgent:
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
                         for _ in range(self.config.n_tactics):
-                            proposals = induce_tactics(episodes,
+                            proposals = induce_tactics(episodes[existing_episodes:],
                                                        self.config.n_tactics,
                                                        self.config.min_tactic_score,
                                                        tactics)
