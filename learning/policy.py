@@ -481,6 +481,9 @@ class RandomPolicy(Policy):
     def score_outcomes(self, outcomes: list[str], state: torch.Tensor, action: str, goal: str) -> torch.Tensor:
         return torch.rand((len(outcomes),))
 
+    def fit(self, *args, **kwargs):
+        pass
+
 
 class ConstantPolicy(Policy):
     'Used for debugging.'
