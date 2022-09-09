@@ -123,10 +123,18 @@ def parse_sexp(s: str, ptr: int = 0) -> (object, int):
         return s[before:ptr], ptr
 
 
-def randomize_atoms(sexp, criteria, sample):
+def randomize_atoms(sexp, criteria, sample, mapping):
     if isinstance(sexp, str):
-        return str(sample()) if criteria(sexp) else sexp
-    return [randomize_atoms(s, criteria, sample) for s in sexp]
+        if sexp in mapping:
+            return mapping[sexp]
+
+        if criteria(sexp):
+            v = str(sample())
+            mapping[sexp] = v
+            return v
+
+        return sexp
+    return [randomize_atoms(s, criteria, sample, mapping) for s in sexp]
 
 
 def format_sexp(sexp):

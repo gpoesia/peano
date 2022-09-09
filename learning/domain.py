@@ -274,19 +274,19 @@ class EquationsDomainFromTemplates(EquationsDomain):
 
         # Randomize numeric literals.
         sexp = randomize_atoms(sexp,
-                               lambda s: s == 'd',
-                               lambda: int(np.random.randn() * 5))
+                               lambda s: s.startswith('d'),
+                               lambda: int(np.random.randn() * 5), {})
 
         # Randomize operators.
         sexp = randomize_atoms(sexp,
                                lambda s: s == 'op',
-                               lambda: random.choice("+-*/"))
+                               lambda: random.choice("+-*/"), {})
         sexp = randomize_atoms(sexp,
                                lambda s: s == '+-',
-                               lambda: random.choice("+-"))
+                               lambda: random.choice("+-"), {})
         sexp = randomize_atoms(sexp,
                                lambda s: s == '*/',
-                               lambda: random.choice("*/"))
+                               lambda: random.choice("*/"), {})
 
         return self.start_derivation(format_sexp(sexp), '(= x ?)')
 
@@ -294,10 +294,10 @@ class EquationsDomainFromTemplates(EquationsDomain):
 class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= x (op d d))",
-            "(= x (op (op d d) d))",
-            "(= x (op d (op d d)))",
-            "(= x (op (op d d) (op d d)))",
+            "(= x (op d1 d2))",
+            "(= x (op (op d1 d2) d3))",
+            "(= x (op d1 (op d2 d3)))",
+            "(= x (op (op d1 d2) (op d3 d4)))",
         ], actions=['eval', 'rewrite'])
 
 
@@ -305,8 +305,10 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
 #            "(= answer (+- x (+- d d)))",
-            "(= answer (+ (- x d) d))",
-            "(= answer (- (+ x d) d))",
+            "(= answer (+ (- x d1) d2))",
+            "(= answer (+ (- x d1) d1))",
+            "(= answer (- (+ x d1) d2))",
+            "(= answer (- (+ x d1) d1))",
 #            "(= answer (+- (+- d x) d))",
 #            "(= answer (+- d (+- d x)))",
 #            "(= answer (+- d (+- d x)))",
