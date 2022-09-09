@@ -356,8 +356,8 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
 class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= (+ x d) d)",
-            "(= (- x d) d)",
+            "(= (+ x d1) d2)",
+            "(= (- x d1) d2)",
 #            "(= (+ d x) d)",
 #            "(= (- d x) d)",
         ], actions=['eval', 'rewrite', '+_comm',
@@ -369,17 +369,17 @@ class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
 class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= (* x d) d)",
-            "(= (/ x d) d)",
-            "(= (* d x) d)",
+            "(= (* x d1) d2)",
+            "(= (/ x d1) d2)",
+            "(= (* d1 x) d2)",
         ])
 
 class TwoStepEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= (op (op x d) d) d)",
-            "(= (op d (op x d)) d)",
-            "(= (op d (op d x)) d)",
+            "(= (op (op x d1) d2) d3)",
+            "(= (op d1 (op x d2)) d3)",
+            "(= (op d1 (op d2 x)) d3)",
         ])
 
 
