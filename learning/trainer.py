@@ -20,7 +20,7 @@ from util import get_device
 from episode import ProofSearchEpisode
 from search import SearcherAgent, SearcherResults, run_search_on_batch, load_search_model
 from policy import ContrastivePolicy, RandomPolicy
-from tactics import induce_tactics
+from tactics import induce_tactics, rewrite_episode_using_tactics
 
 
 logger = logging.getLogger(__name__)
@@ -186,6 +186,12 @@ class TrainerAgent:
                     for i, f in enumerate(self.searcher_futures):
                         logger.info('Waiting for searcher #%d...', i)
                         result_i = f.result()
+
+                        for j in range(len(result_i.episodes)):
+                            d = make_domain(result_i.episodes[j].domain, tactics)
+                            result_i.episodes[j] = rewrite_episode_using_tactics(
+                                result_i.episodes[j], tactics)
+
                         episodes.extend(result_i.episodes)
 
                     # Induce tactics from new episodes.

@@ -363,6 +363,23 @@ class Tactic:
         return e
 
 
+def rewrite_episode_using_tactics(episode: Episode, d: 'Domain',
+                                  tactics: list[Tactic]) -> Episode:
+    'Rewrite episode using the given set of tactics until reaching a fixpoint.'
+    changed = True
+
+    while changed:
+        changed = False
+
+        for t in tactics:
+            e_rw = t.rewrite_episode(episode, d)
+            if e_rw is not episode:
+                episode = e_rw
+                changed = True
+
+    return episode
+
+
 # Maximum number of solution slices to use for inducing tactics.
 MAX_SLICES = 10**4
 
