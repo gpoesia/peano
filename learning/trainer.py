@@ -190,7 +190,7 @@ class TrainerAgent:
                         for j in range(len(result_i.episodes)):
                             d = make_domain(result_i.episodes[j].domain, tactics)
                             result_i.episodes[j] = rewrite_episode_using_tactics(
-                                result_i.episodes[j], tactics)
+                                result_i.episodes[j], d, tactics)
 
                         episodes.extend(result_i.episodes)
 
