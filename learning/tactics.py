@@ -102,6 +102,23 @@ class Tactic:
     def rename(self, new_name: str) -> 'Tactic':
         return Tactic(new_name, self.steps)
 
+    def is_connected(self):
+        'Checks if all intermediate steps are used to compute the tactics output.'
+        steps_used = {len(self.steps) - 1}
+        queue = [len(self.steps) - 1]
+
+        while queue:
+            i = queue.pop()
+
+            for a in self.steps[i].arguments:
+                if a not in steps_used and is_result_name(a):
+                    idx = int(a[1:])
+                    steps_used.add(a)
+                    queue.append(idx)
+
+        return len(steps_used) == len(self.steps)
+
+
     @staticmethod
     def from_solution_slice(name: str,
                             start_index: int,
@@ -362,7 +379,8 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
                                                arguments[start:start+length])
-                tactics_from_slices.append(t)
+                if t.is_connected():
+                    tactics_from_slices.append(t)
 
     print(len(tactics_from_slices), 'tactics from slices.')
 
@@ -556,6 +574,37 @@ class TacticsTest(unittest.TestCase):
         assert episode.success
         assert episode.actions[0] == 'eval_rewrite_x2'
         assert episode.actions[2] == 'eval_rewrite_x2'
+
+    def test_is_connected(self):
+        assert Tactic(
+            'eval_rewrite_x2',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b'], '?1'),
+                Step('eval', ['?c'], '?2'),
+                Step('rewrite', ['?2', '?1'], '?3'),
+            ]
+        ).is_connected()
+
+        assert not Tactic(
+            'eval_rewrite_x2',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('eval', ['?b'], '?1'),  # Useless eval
+                Step('rewrite', ['?0', '?c'], '?2'),
+                Step('eval', ['?d'], '?3'),
+                Step('rewrite', ['?3', '?2'], '?4'),
+            ]
+        ).is_connected()
+
+        assert not Tactic(
+            'eval_rewrite_x2',
+            [
+                Step('eval', ['?a'], '?0'),
+                Step('rewrite', ['?0', '?b', '?c'], '?1'),
+                Step('eval', ['?d'], '?2'),
+            ]
+        ).is_connected()
 
     def test_rewrite_episode_using_tactic(self):
         import domain
