@@ -66,6 +66,9 @@ class TrainerAgent:
         self.model_type = config.model.type
         self.algorithm = config.algorithm
         self.train_domains = config.train_domains
+        self.passing_grade = config.get('passing_grade', 0.0)
+        self.search_budget_multiplier = config.get('search_budget_multiplier', 10)
+        self.adjust_search_budget_threshold = config.get('adjust_search_budget_threshold', 0.0)
         self.eval_domains = config.eval_domains
         self.epsilon = config.epsilon
         self.config = config
@@ -120,8 +123,9 @@ class TrainerAgent:
         m = m.to(device)
         return m, iteration, last_checkpoint, episodes, tactics, episodes_iteration
 
-    def get_train_domain(self, it: int):
-        return self.train_domains[min(it, len(self.train_domains) - 1)]
+    def get_train_domain(self, curriculum_steps: int):
+        return self.train_domains[min(curriculum_steps,
+                                      len(self.train_domains) - 1)]
 
     def _get_searcher_device(self, searcher_index: int):
         if 'gpus' in self.config:
@@ -130,6 +134,8 @@ class TrainerAgent:
 
     def learn(self, seeds, eval_seeds):
         m, iteration, last_checkpoint, episodes, tactics, ep_it = self.start()
+        max_nodes = self.max_nodes
+        curriculum_steps = 0
 
         with ProcessPoolExecutor() as executor:
             for it in range(iteration, self.config.iterations):
@@ -149,9 +155,9 @@ class TrainerAgent:
                                 spawn_searcher,
                                 iteration=it,
                                 rank=j,
-                                domain=self.get_train_domain(it),
+                                domain=self.get_train_domain(curriculum_steps),
                                 tactics=tactics,
-                                max_nodes=self.max_nodes,
+                                max_nodes=max_nodes,
                                 max_depth=self.max_depth,
                                 epsilon=self.epsilon,
                                 rerank_top_k=self.rerank_top_k,
@@ -161,8 +167,10 @@ class TrainerAgent:
                                 device=self._get_searcher_device(j),
                             )
                         )
+
                     # Evaluate the current agent.
                     logger.info('Evaluating...')
+                    success_rate = {}
 
                     for d in self.eval_domains:
                         if not os.path.exists(f'eval-episodes-{d}-{it}.pkl'):
@@ -179,6 +187,7 @@ class TrainerAgent:
                             )
 
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
+                            success_rate[d] = eval_results.success_rate()
 
                     existing_episodes = len(episodes)
 
@@ -229,6 +238,21 @@ class TrainerAgent:
 
                     with open(f'tactics-{it}.pkl', 'wb') as f:
                         pickle.dump(tactics, f)
+
+                    train_success_rate = sum(e.success for e in episodes[existing_episodes:])
+
+                    if train_success_rate >= self.passing_grade:
+                        curriculum_steps += 1
+                        logging.info('Success Advancing curriculum')
+
+                    if train_success_rate < self.adjust_search_budget_threshold:
+                        max_nodes *= self.search_budget_multiplier
+                        logging.info('Train success rate too low (%f), '
+                                     'increasing search nodes to %d',
+                                     train_success_rate, max_nodes)
+                    else:
+                        max_nodes = self.max_nodes
+
 
                 # Fit model and update checkpoint.
                 logger.info('Training model on %d episodes (%d successful)',
