@@ -68,6 +68,12 @@ class Trace:
                 for k, v in sorted(list(self.assignments.items()))
                 if is_parameter_name(k)]
 
+    def return_name(self):
+        name, d = self.definitions[-1]
+        if isinstance(d, Trace):
+            return d.return_name()
+        return name
+
 
 class Tactic:
     '''Represents a high-level derivation sketch that operates on proof terms.
@@ -277,11 +283,16 @@ class Tactic:
                     new_assignments = self._unify_args(args, s.arguments, trace)
 
                     if new_assignments is not None:
-                        u = (definition
-                             if isinstance(definition, Trace)
-                             else trace).universe.clone()
+                        u = trace.universe.clone()
+                        # (definition
+                        #     if isinstance(definition, Trace)
+                        #     else trace).universe.clone()
 
-                        subdef_name = f'!tac{u.next_id()}'
+                        if isinstance(definition, Trace):
+                            subdef_name = definition.return_name()
+                        else:
+                            subdef_name = f'!tac{u.next_id()}'
+
                         d.define(u, subdef_name, definition)
 
                         new_assignments[s.result] = subdef_name

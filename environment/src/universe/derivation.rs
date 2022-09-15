@@ -51,6 +51,16 @@ impl Derivation {
         self.next_id
     }
 
+    pub fn fast_forward_next_term_id(&mut self, i: usize) {
+        if i > self.next_id {
+            self.next_id = i;
+        }
+    }
+
+    pub fn peek_next_term_id(&self) -> usize {
+        self.next_id
+    }
+
     pub fn lookup(&self, name: &String) -> Option<&Definition> {
         self.context_.lookup(name)
     }

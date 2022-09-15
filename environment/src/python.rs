@@ -201,6 +201,14 @@ impl PyDerivation {
         self.universe.next_term_id()
     }
 
+    pub fn peek_next_id(&self) -> usize {
+        self.universe.peek_next_term_id()
+    }
+
+    pub fn fast_forward_next_id(&mut self, i: usize) {
+        self.universe.fast_forward_next_term_id(i)
+    }
+
     pub fn apply_all(&self, actions: Vec<String>) -> Vec<PyDefinition> {
         let mut result = Vec::new();
         for a in actions {

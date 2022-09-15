@@ -69,10 +69,12 @@ class Domain:
                 subdefs.extend(self.define(universe, subdef_name, d,
                                            toplevel and is_last))
 
+            if definition.universe is not None:
+                universe.fast_forward_next_id(definition.universe.peek_next_id())
+
             return subdefs
 
         return universe.define(name, definition)
-
 
     def generate(self, seed: int) -> Problem:
         raise NotImplementedError()

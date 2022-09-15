@@ -157,6 +157,7 @@ class Episode:
             assert len(definitions) > 0, "Failed to replay the solution."
 
             arguments.append(definitions[0].generating_arguments())
+
             domain.define(problem.universe, f'!step{i}', definitions[0])
 
         self.arguments = arguments

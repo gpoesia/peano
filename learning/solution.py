@@ -18,6 +18,7 @@ class Action:
     arguments: Optional[list[str]] = None
 
     definitions: Optional[peano.PyDefinition] = None
+    universe: Optional[peano.PyDerivation] = None
 
     def __str__(self):
         return self.value
@@ -122,6 +123,7 @@ class Solution:
                 return [Action(kind='result', definitions=None, value='_')]
             return [Action(kind='result',
                            definitions=t.definitions,
+                           universe=t.universe,
                            value=domain.value_of(t.universe, t),
                            arguments=t.generating_arguments())
                     for t in traces]
