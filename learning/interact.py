@@ -42,7 +42,7 @@ def run_random_beam_search(domain):
     solution = None
 
     for i in tqdm(range(10)):
-        episode = pi.beam_search(p, 10, 1, 5000)
+        episode = pi.beam_search(p, 8, 1, 50000)
         succ += episode.success
 
         if episode.success:
@@ -211,6 +211,8 @@ def try_random_rollouts(env, n_problems=10**3, n_steps=30):
 def print_solutions(path, min_length=0):
     with open(path, 'rb') as f:
         episodes = pickle.load(f)
+        if hasattr(episodes, 'episodes'):
+            episodes = episodes.episodes
 
     solved_episodes = [e for e in episodes if e.success]
 
