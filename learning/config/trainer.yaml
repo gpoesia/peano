@@ -1,7 +1,7 @@
 task: train
 
 train_interval: [500, 1000000]
-eval_interval: [0, 200]
+eval_interval: [0, 100]
 
 trainer:
     train_domains:
@@ -16,19 +16,20 @@ trainer:
 
     passing_grade: 0.9
     adjust_search_budget_threshold: 0.1
+    search_budget_multiplier: 10
 
-    iterations: 10
+    iterations: 15
     batch_size: 500
     n_searchers: 5
     max_depth: 8
     max_nodes: 500
     rerank_top_k: 200
-    epsilon: 0.1
+    epsilon: 0.2
     algorithm: 'policy-beam-search'
 
     induce_tactics: true
     n_tactics: 3
-    min_tactic_score: 50
+    min_tactic_score: 30
 
     model:
         type: contrastive-policy

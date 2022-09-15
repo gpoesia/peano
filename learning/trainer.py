@@ -7,6 +7,7 @@ import pickle
 import logging
 import itertools
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 import torch
 import hydra
@@ -136,9 +137,10 @@ class TrainerAgent:
         m, iteration, last_checkpoint, episodes, tactics, ep_it = self.start()
         max_nodes = self.max_nodes
         curriculum_steps = 0
+        last_train_success_rate = 0
 
-        with ProcessPoolExecutor() as executor:
-            for it in range(iteration, self.config.iterations):
+        for it in range(iteration, self.config.iterations):
+            with ProcessPoolExecutor() as executor:
                 logger.info("### Iteration %d ###", it)
 
                 if ep_it >= it:
@@ -148,26 +150,28 @@ class TrainerAgent:
                                 sum(1 for e in episodes if e.success))
                 else:
                     # Spawn N searchers.
-                    logger.info('Spawning searchers...')
+                    logger.info('Spawning searchers on %s, max_nodes = %d...',
+                                self.get_train_domain(curriculum_steps), max_nodes)
+                    wandb.log({'max_nodes': max_nodes,
+                               'curriculum_steps': curriculum_steps})
                     for j in range(self.n_searchers):
-                        self.searcher_futures.append(
-                            executor.submit(
-                                spawn_searcher,
-                                iteration=it,
-                                rank=j,
-                                domain=self.get_train_domain(curriculum_steps),
-                                tactics=tactics,
-                                max_nodes=max_nodes,
-                                max_depth=self.max_depth,
-                                epsilon=self.epsilon,
-                                rerank_top_k=self.rerank_top_k,
-                                model_type=self.model_type,
-                                model_path=last_checkpoint,
-                                seeds=random.choices(seeds, k=self.batch_size),
-                                device=self._get_searcher_device(j),
-                            )
-                        )
-
+                        params = {
+                            'iteration': it,
+                            'rank': j,
+                            'domain': self.get_train_domain(curriculum_steps),
+                            'tactics': tactics,
+                            'max_nodes': max_nodes,
+                            'max_depth': self.max_depth,
+                            'epsilon': self.epsilon,
+                            'rerank_top_k': self.rerank_top_k,
+                            'model_type': self.model_type,
+                            'model_path': last_checkpoint,
+                            'seeds': random.choices(seeds, k=self.batch_size),
+                            'device': self._get_searcher_device(j),
+                        }
+                        logging.info('Searcher parameters: %s', str(params))
+                        self.searcher_futures.append(executor.submit(spawn_searcher,
+                                                                     **params))
                     # Evaluate the current agent.
                     logger.info('Evaluating...')
                     success_rate = {}
@@ -194,7 +198,12 @@ class TrainerAgent:
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
                         logger.info('Waiting for searcher #%d...', i)
-                        result_i = f.result()
+                        try:
+                            result_i = f.result()
+                        except BrokenProcessPool as e:
+                            logger.warning('Searcher #%d failed: %s. Ignoring results...',
+                                           i, str(e))
+                            continue
 
                         for j in range(len(result_i.episodes)):
                             d = make_domain(result_i.episodes[j].domain, tactics)
@@ -239,20 +248,29 @@ class TrainerAgent:
                     with open(f'tactics-{it}.pkl', 'wb') as f:
                         pickle.dump(tactics, f)
 
-                    train_success_rate = sum(e.success for e in episodes[existing_episodes:])
+                    train_success_rate = (sum(e.success 
+                                              for e in episodes[existing_episodes:]) / 
+                                          (max(1, len(episodes) - existing_episodes)))
+
+                    wandb.log({'train_success_rate': train_success_rate})
 
                     if train_success_rate >= self.passing_grade:
                         curriculum_steps += 1
-                        logging.info('Success Advancing curriculum')
+                        logging.info('Success rate above passing grade, '
+                                     'advancing in curriculum.')
 
-                    if train_success_rate < self.adjust_search_budget_threshold:
+                    if train_success_rate < 1 and \
+                            (train_success_rate - last_train_success_rate) < \
+                                self.adjust_search_budget_threshold:
                         max_nodes *= self.search_budget_multiplier
+                        max_nodes = min(max_nodes, 100000)
                         logging.info('Train success rate too low (%f), '
-                                     'increasing search nodes to %d',
+                                     'increasing max search nodes to %d',
                                      train_success_rate, max_nodes)
                     else:
                         max_nodes = self.max_nodes
 
+                    last_train_success_rate = train_success_rate
 
                 # Fit model and update checkpoint.
                 logger.info('Training model on %d episodes (%d successful)',
