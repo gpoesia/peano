@@ -3,6 +3,7 @@
 import math
 import random
 import os
+import logging
 
 import torch
 import wandb
@@ -188,6 +189,9 @@ def setup_wandb(cfg: DictConfig):
         wandb.init(
                 project=cfg.job.wandb_project,
                 config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True))
+        for key in logging.Logger.manager.loggerDict.keys():
+            if key.startswith('wandb'):
+                logging.getLogger(key).setLevel(logging.WARNING)
     else:
         # Disable wandb (i.e., make log() a no-op).
         wandb.log = lambda *args, **kwargs: None
