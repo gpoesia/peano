@@ -27,6 +27,9 @@ from tactics import induce_tactics, rewrite_episode_using_tactics
 logger = logging.getLogger(__name__)
 
 
+MAX_NODES_LIMIT = 50000
+
+
 def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
                    epsilon, rerank_top_k, model_type, model_path, seeds, device):
     out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
@@ -263,7 +266,7 @@ class TrainerAgent:
                             (train_success_rate - last_train_success_rate) < \
                                 self.adjust_search_budget_threshold:
                         max_nodes *= self.search_budget_multiplier
-                        max_nodes = min(max_nodes, 100000)
+                        max_nodes = min(max_nodes, MAX_NODES_LIMIT)
                         logging.info('Train success rate too low (%f), '
                                      'increasing max search nodes to %d',
                                      train_success_rate, max_nodes)
