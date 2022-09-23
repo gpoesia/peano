@@ -94,7 +94,7 @@ class Domain:
 
 class EquationsDomain(Domain):
     def __init__(self,
-                 cached_problems='linear-equations.pkl',
+                 cached_problems=None,
                  variables=['x'],
                  actions=None):
         super().__init__()
@@ -465,6 +465,10 @@ class MixedDomain(Domain):
                                                   p=self.probs)]
         return domain.generate_derivation(seed)
 
+    def load_tactics(self, tactics):
+        for d in self.subdomains:
+            d.load_tactics(tactics)
+
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         raise NotImplementedError('Should call derivation_done from problem.domain')
 
@@ -505,9 +509,10 @@ def make_domain(name, tactics=[]):
                 names[i] = names[i].strip()
                 weights.append(int(weight))
 
-        return MixedDomain(list(map(make_domain, names)), weights)
+        d = MixedDomain(list(map(make_domain, names)), weights)
+    else:
+        d = DOMAINS[name.strip()]()
 
-    d = DOMAINS[name.strip()]()
     d.load_tactics(tactics)
 
     return d
