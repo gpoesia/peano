@@ -1,0 +1,10 @@
+task: reconstruct
+
+tactics: tactics.pkl
+episodes: episodes.pkl
+curriculum_plot: curriculum-reconstruction.png
+output_sections: induced-section-{}.pkl
+
+hydra:
+    job:
+        chdir: false

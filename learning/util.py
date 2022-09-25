@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import collections
 import math
 import random
 import os
 import logging
+import json
 
+import altair
 import torch
 import wandb
 from omegaconf import DictConfig, OmegaConf, open_dict
@@ -195,3 +198,29 @@ def setup_wandb(cfg: DictConfig):
     else:
         # Disable wandb (i.e., make log() a no-op).
         wandb.log = lambda *args, **kwargs: None
+
+
+def count_inversions(l: list):
+    '''Counts the number of inversions in a list.
+    Complexity: O(nk), where n = len(l) and k = len(set(l)); thus,
+    works well if k is small.
+    '''
+    counts = collections.defaultdict(int)
+    inversions = 0
+
+    for i, val in enumerate(l):
+        for key, cnt in counts.items():
+            if key > val:
+                inversions += cnt
+        counts[val] += 1
+
+    return inversions
+
+
+def plot_vegalite(template: str, data: list, output_path: str):
+    with open(f'vega-lite/{template}.json') as f:
+        spec = json.load(f)
+
+    spec['data'] = {'values': data}
+
+    altair.Chart.from_dict(spec).save(output_path)
