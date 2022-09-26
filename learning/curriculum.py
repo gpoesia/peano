@@ -150,6 +150,8 @@ def reconstruct_curriculum(cfg: DictConfig):
                           'Curriculum': 'Khan Academy',
                           'Section': khan_academy_name[o]})
 
+    plot_vegalite('curriculum', plot_data, cfg.curriculum_plot)
+
     begin = 0
 
     for induced_section_idx in range(N_OUTPUT_SECTIONS):
@@ -157,7 +159,10 @@ def reconstruct_curriculum(cfg: DictConfig):
         problems = []
 
         while end < len(sorted_ep_deps):
-            problems.extend(episodes_by_ep_deps[sorted_ep_deps[end]])
+            for episode in episodes_by_ep_deps[sorted_ep_deps[end]]:
+                problems.append({'problem': episode.problem,
+                                 'goal': episode.goal,
+                                 'domain': episode.domain})
             end += 1
             if len(problems) > len(order) // N_OUTPUT_SECTIONS:
                 break
@@ -168,7 +173,6 @@ def reconstruct_curriculum(cfg: DictConfig):
             pickle.dump(problems, f)
             print('Wrote', f.name, 'with', len(problems), 'problems.')
 
-    plot_vegalite('curriculum', plot_data, cfg.curriculum_plot)
 
 
 def compute_inversions_baseline(l):

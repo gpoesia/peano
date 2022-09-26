@@ -479,6 +479,22 @@ class MixedDomain(Domain):
         raise NotImplementedError('Should call derivation_actions from problem.domain')
 
 
+class PrecomputedProblemSet(Domain):
+    def __init__(self, path):
+        super().__init__()
+
+        with open(path, 'rb') as f:
+            self.problems = pickle.load(f)
+
+    def generate_derivation(self, seed: int) -> Problem:
+        random.seed(seed)
+        problem = random.choice(self.problems)
+        domain = make_domain(problem['domain'])
+        domain.load_tactics(self.tactics)
+
+        return domain.start_derivation(problem['problem'], problem['goal'])
+
+
 DOMAINS = {
     'equations': EquationsDomain,
     'counting': CountingDomain,
@@ -495,6 +511,7 @@ DOMAINS = {
     'simpl4': Simpl4Domain,
 }
 
+
 def make_domain(name, tactics=[]):
     # Example syntax: mix(equations, comb-like, simpl0)
     if name.startswith('mix(') and name.endswith(')'):
@@ -510,6 +527,9 @@ def make_domain(name, tactics=[]):
                 weights.append(int(weight))
 
         d = MixedDomain(list(map(make_domain, names)), weights)
+    elif name.startswith('load(') and name.endswith(')'):
+        path = name[len('load('):-1]
+        d = PrecomputedProblemSet(path)
     else:
         d = DOMAINS[name.strip()]()
 

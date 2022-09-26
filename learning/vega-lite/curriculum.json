@@ -1,0 +1,22 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "width": 600,
+  "height": 100,
+  "mark": {
+    "type": "point",
+    "shape": "square",
+    "filled": true,
+    "opacity": 0.8
+  },
+  "encoding": {
+    "x": {
+      "field": "order",
+      "type": "quantitative",
+      "axis": {"grid": false, "title": "Curriculum order"}
+    },
+    "y": {"field": "Curriculum", "type": "nominal", "axis": {"title": ""}},
+    "color": {"field": "Section", "type": "nominal",
+              "scale": {"scheme": "set1"},
+              "legend": { "labelLimit": 500, "orient": "none", "legendX": 0, "legendY": 150 }}
+  }
+}
