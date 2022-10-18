@@ -359,8 +359,6 @@ impl Derivation {
                 arguments: vec![Rc::new(Term::Atom { name: name.clone() })],
             }))
         });
-
-        println!("eq_refl_with produced {:?}", new_terms);
     }
 
     fn apply_builtin_eq_symm_with(&self, name: &String, def: &Definition, new_terms: &mut Vec<Definition>) {
