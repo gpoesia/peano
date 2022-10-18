@@ -490,7 +490,7 @@ class PrecomputedProblemSet(Domain):
         random.seed(seed)
         problem = random.choice(self.problems)
         domain = make_domain(problem['domain'])
-        domain.load_tactics(self.tactics)
+        domain.load_tactics(self.tactics.values())
 
         return domain.start_derivation(problem['problem'], problem['goal'])
 
