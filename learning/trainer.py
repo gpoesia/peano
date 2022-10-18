@@ -218,7 +218,7 @@ class TrainerAgent:
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
                         for _ in range(self.config.n_tactics):
-                            proposals = induce_tactics(episodes[existing_episodes:],
+                            proposals = induce_tactics(episodes, # [existing_episodes:],
                                                        self.config.n_tactics,
                                                        self.config.min_tactic_score,
                                                        tactics)
