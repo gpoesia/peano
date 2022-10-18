@@ -129,7 +129,7 @@ div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 +-_assoc : [((+ (- 'a 'b) 'c) : real) -> (= (+ (- 'a 'b) 'c) (+ 'a (- 'c 'b)))].
 
 */_assoc_r : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
-*/_assoc_l : [((* 'a (/ 'b 'c)) : real) -> (= (* 'a (/ 'b 'c)) (/ (* 'a 'b) 'c))].
+*/_assoc_l : [((* (/ 'a 'b) 'c) : real) -> (= (* (/ 'a 'b) 'c) (* 'a (/ 'b 'c)))].
 
 /* Distributivity */
 +*_dist_l : [((+ (* 'a 'c) (* 'b 'c)) : real) -> (= (+ (* 'a 'c) (* 'b 'c)) (* (+ 'a 'b) 'c))].
@@ -374,14 +374,15 @@ class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
             "(= (* x d1) d2)",
             "(= (/ x d1) d2)",
             "(= (* d1 x) d2)",
-        ])
+        ], actions=['eval', 'rewrite', '*_comm',
+                    '*1_id', '/1_id',
+                    '*/_assoc_l', '*/_assoc_r',
+                    'mul_eq', 'div_eq'])
 
 class TwoStepEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= (op (op x d1) d2) d3)",
-            "(= (op d1 (op x d2)) d3)",
-            "(= (op d1 (op d2 x)) d3)",
+            "(= (+- (*/ x d1) d2) d3)",
         ])
 
 
