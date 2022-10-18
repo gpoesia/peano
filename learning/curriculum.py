@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from tactics import Tactic
 from policy import Episode
-from util import count_inversions, plot_vegalite
+from util import count_inversions, bootstrap_mean_ci, plot_vegalite
 
 
 N_OUTPUT_SECTIONS = 3
@@ -43,6 +43,8 @@ def compare_dependencies(d1: tuple[str], d2: tuple[str]):
     return 0
 
 def topologically_sort_dependencies(l: list[tuple[str]]) -> list[tuple[str]]:
+    random.shuffle(l)
+
     edges = collections.defaultdict(list)
     indegree = collections.defaultdict(int)
 
@@ -131,14 +133,18 @@ def reconstruct_curriculum(cfg: DictConfig):
     n_induced_sections = max(layers.values()) + 1
 
     order = [khan_academy_order[e.domain] for e in induced_curriculum]
-    inversions = count_inversions(order)
+    inversions_mean, inversions_ci = estimate_induced_curriculum_inversions(
+        distinct_ep_deps, episodes_by_ep_deps,
+        lambda e: khan_academy_order[e.domain])
+
+    baseline_mean, baseline_ci = compute_inversions_baseline(order)
     max_inversions = count_inversions(sorted(order, reverse=True))
 
     print('The induced curriculum has', len(order), 'elements.')
     print('The induced curriculum has', n_induced_sections, 'sections')
     print('The maximum number of inversions would be', max_inversions)
-    print(f'{inversions} inversions in the induced curriculum')
-    print(f'99% CI: {compute_inversions_baseline(order)}')
+    print(f'99% CI for induced: {inversions_mean} @ {inversions_ci}')
+    print(f'99% CI for baseline: {baseline_mean} @ {baseline_ci}')
 
     plot_data = []
     for i, o in enumerate(order):
@@ -150,7 +156,18 @@ def reconstruct_curriculum(cfg: DictConfig):
                           'Curriculum': 'Khan Academy',
                           'Section': khan_academy_name[o]})
 
-    plot_vegalite('curriculum', plot_data, cfg.curriculum_plot)
+    # plot_vegalite('curriculum', plot_data, cfg.curriculum_plot)
+
+    plot_vegalite('inversions', [
+        {'Curriculum': 'Random',
+         'mean': baseline_mean / max_inversions,
+         'lo': baseline_ci[0] / max_inversions,
+         'hi': baseline_ci[1] / max_inversions},
+        {'Curriculum': 'Inferred',
+         'mean': inversions_mean / max_inversions,
+         'lo': inversions_ci[0] / max_inversions,
+         'hi': inversions_ci[1] / max_inversions},
+    ], cfg.inversions_plot)
 
     begin = 0
 
@@ -183,7 +200,26 @@ def compute_inversions_baseline(l):
         random.shuffle(l2)
         trials.append(count_inversions(l2))
 
-    return tuple(np.quantile(trials, [0.005, 0.995], method='nearest'))
+    return bootstrap_mean_ci(trials, .99)
+
+
+def estimate_induced_curriculum_inversions(distinct_ep_deps: list[tuple[str]],
+                                           episodes_by_ep_deps: dict[tuple[str], list[Episode]],
+                                           order_fn):
+    trials = []
+
+    for i in tqdm(range(100)):
+        sorted_ep_deps, _ = topologically_sort_dependencies(distinct_ep_deps)
+
+        order = []
+        for deps in sorted_ep_deps:
+            l = list(map(order_fn, episodes_by_ep_deps[deps]))
+            random.shuffle(l)
+            order.extend(l)
+
+        trials.append(count_inversions(order))
+
+    return bootstrap_mean_ci(trials, .99)
 
 
 def compute_tactics_dependencies(tactics: list[Tactic]) -> dict[str, set[str]]:

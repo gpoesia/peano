@@ -3,6 +3,7 @@ task: reconstruct
 tactics: tactics.pkl
 episodes: episodes.pkl
 curriculum_plot: curriculum-reconstruction.png
+inversions_plot: curriculum-inversions.png
 output_sections: induced-section-{}.pkl
 
 hydra:

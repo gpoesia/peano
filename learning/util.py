@@ -10,6 +10,7 @@ import json
 import altair
 import torch
 import wandb
+import numpy as np
 from omegaconf import DictConfig, OmegaConf, open_dict
 
 
@@ -223,4 +224,14 @@ def plot_vegalite(template: str, data: list, output_path: str):
 
     spec['data'] = {'values': data}
 
-    altair.Chart.from_dict(spec).save(output_path)
+    altair.Chart.from_dict(spec).save(output_path, scale_factor=5)
+
+
+def bootstrap_mean_ci(trials, confidence):
+    estimates = []
+
+    for i in range(5000):
+        estimates.append(np.mean(random.choices(trials, k=len(trials))))
+
+    bounds = ((1 - confidence) / 2, 1 - (1 - confidence) / 2)
+    return np.mean(estimates), tuple(np.quantile(estimates, bounds, method='nearest'))
