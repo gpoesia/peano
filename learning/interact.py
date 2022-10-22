@@ -35,14 +35,19 @@ def _input_problem(domain, derivation=True):
                             lambda p: p.description)
 
 
-def run_random_beam_search(domain):
-    pi = RandomPolicy()
+def run_beam_search(domain, policy = None, device=None):
+    if policy is None:
+        pi = RandomPolicy()
+    else:
+        pi = torch.load(policy, map_location=device)
+        pi = pi.to(device)
+
     p = _input_problem(domain)
     succ = 0
     solution = None
 
     for i in tqdm(range(10)):
-        episode = pi.beam_search(p, 10, 1, 50000)
+        episode = pi.beam_search(p, 8, 1, 50000)
         succ += episode.success
 
         if episode.success:
@@ -251,6 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--beam-search', help='Run beam search with the given agent', action='store_true')
     parser.add_argument('--best-first-search', help='Run best-first search with the given agent', action='store_true')
     parser.add_argument('--agent', help='Path to a pre-trained agent', type=str)
+    parser.add_argument('--policy-path', help='Path to a pre-trained policy', type=str)
     parser.add_argument('--environment', help='Solve a problem manually', action='store_true')
     parser.add_argument('--print', help='Pretty print solved episodes from the given pickle file.', type=str)
     parser.add_argument('--print-tactics', help='Pretty print generated tactics from the given pickle file.', type=str)
@@ -283,7 +289,7 @@ if __name__ == '__main__':
                        else 'best-first-search' if opt.best_first_search
                        else 'greedy')
     elif opt.beam_search:
-        run_random_beam_search(domain)
+        run_beam_search(domain, opt.policy_path, device)
     elif opt.best_first_search:
         run_best_first_search(opt.agent, domain, device)
     elif opt.environment:
