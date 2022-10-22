@@ -279,6 +279,11 @@ class EquationsDomainFromTemplates(EquationsDomain):
                                lambda s: s.startswith('d'),
                                lambda: int(np.random.randn() * 5), {})
 
+        sexp = randomize_atoms(sexp,
+                               lambda s: s.startswith('nz'),
+                               lambda: ((abs(int(np.random.randn())) + 1) *
+                                        random.choice([1, -1])), {})
+
         # Randomize operators.
         sexp = randomize_atoms(sexp,
                                lambda s: s == 'op',
@@ -296,10 +301,10 @@ class EquationsDomainFromTemplates(EquationsDomain):
 class SubstitutionAndEvaluatingExpressions(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= x (op d1 d2))",
-            "(= x (op (op d1 d2) d3))",
-            "(= x (op d1 (op d2 d3)))",
-            "(= x (op (op d1 d2) (op d3 d4)))",
+            "(= x (op d1 nz2))",
+            "(= x (op (op d1 nz2) nz3))",
+            "(= x (op d1 (op nz2 nz3)))",
+            "(= x (op (op d1 nz2) (op d3 nz4)))",
         ], actions=['eval', 'rewrite'])
 
 
@@ -311,17 +316,17 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
             "(= answer (+ (- x d1) d1))",
             "(= answer (- (+ x d1) d2))",
             "(= answer (- (+ x d1) d1))",
-            "(= answer (* (/ x d1) d1))",
-            "(= answer (* (/ x d1) d2))",
-            "(= answer (/ (* x d1) d1))",
+            "(= answer (* (/ x nz1) d1))",
+            "(= answer (* (/ x nz1) nz1))",
             "(= answer (/ (* x d1) d2))",
+            "(= answer (/ (* x nz1) nz1))",
 #            "(= answer (+- (+- d x) d))",
 #            "(= answer (+- d (+- d x)))",
 #            "(= answer (+- d (+- d x)))",
         ], variables=['x', 'answer'], actions=['eval', 'rewrite', '+_comm',
                                                '+_assoc_l', '+_assoc_r',
                                                '*_comm', '*/_assoc_l', '*/_assoc_r',
-                                               '*1_id', '*0_null',
+                                               '*1_id', '/1_id',
                                                '+0_id', '-0_id',
                                                '+-_assoc', '-+_assoc'])
 
@@ -377,11 +382,11 @@ class OneStepAdditionAndSubtractionEquations(EquationsDomainFromTemplates):
 class OneStepMultiplicationAndDivisionEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
-            "(= (* x d1) d2)",
-            "(= (/ x d1) d2)",
-            "(= (* d1 x) d2)",
+            "(= (* x nz1) d2)",
+            "(= (/ x nz1) d2)",
+            "(= (* nz1 x) d2)",
         ], actions=['eval', 'rewrite', '*_comm',
-                    '*1_id', '/1_id',
+                    '*1_id', '/1_id', '*0_null',
                     '*/_assoc_l', '*/_assoc_r',
                     'mul_eq', 'div_eq'])
 
@@ -389,6 +394,15 @@ class TwoStepEquations(EquationsDomainFromTemplates):
     def __init__(self):
         super().__init__([
             "(= (+- (*/ x d1) d2) d3)",
+        ], actions=[
+            'eval', 'rewrite', '*_comm',
+            '*1_id', '/1_id',
+            '*/_assoc_l', '*/_assoc_r',
+            'mul_eq', 'div_eq',
+            '+_comm', '+0_id', '-0_id',
+            '+_assoc_l', '+_assoc_r',
+            '+-_assoc', '-+_assoc',
+            'add_eq', 'sub_eq'
         ])
 
 
