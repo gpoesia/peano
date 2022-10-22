@@ -130,7 +130,7 @@ class Solution:
         else:
             results = self.derivation.apply(self.actions[-1][0])
             if not results:
-                return [Action(kind='result', definitions=None, value='_')]
+                return []
             return [Action(kind='result',
                            definitions=[('!result', d)],
                            value=self.derivation.value_of(d),
