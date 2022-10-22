@@ -1,10 +1,10 @@
 task: reconstruct
 
-tactics: tactics.pkl
-episodes: episodes.pkl
-curriculum_plot: curriculum-reconstruction.png
-inversions_plot: curriculum-inversions.png
-output_sections: induced-section-{}.pkl
+tactics: /mnt/fs5/poesia/peano/learning/outputs/2022-09-26/12-58-02/tactics-15.pkl
+episodes: /mnt/fs5/poesia/peano/learning/outputs/2022-09-26/12-58-02/episodes-16.pkl
+curriculum_plot: sb2/curriculum-reconstruction.png
+inversions_plot: sb2/curriculum-inversions.png
+output_sections: sb2/induced-section-{}.pkl
 
 hydra:
     job:

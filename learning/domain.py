@@ -311,11 +311,17 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
             "(= answer (+ (- x d1) d1))",
             "(= answer (- (+ x d1) d2))",
             "(= answer (- (+ x d1) d1))",
+            "(= answer (* (/ x d1) d1))",
+            "(= answer (* (/ x d1) d2))",
+            "(= answer (/ (* x d1) d1))",
+            "(= answer (/ (* x d1) d2))",
 #            "(= answer (+- (+- d x) d))",
 #            "(= answer (+- d (+- d x)))",
 #            "(= answer (+- d (+- d x)))",
         ], variables=['x', 'answer'], actions=['eval', 'rewrite', '+_comm',
                                                '+_assoc_l', '+_assoc_r',
+                                               '*_comm', '*/_assoc_l', '*/_assoc_r',
+                                               '*1_id', '*0_null',
                                                '+0_id', '-0_id',
                                                '+-_assoc', '-+_assoc'])
 
