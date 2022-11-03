@@ -72,6 +72,33 @@ def sample_batch(examples: list[str], batch_size: int) -> list[str]:
 
     return batch
 
+
+def batch_strings(s: list[str], batch_size: int) -> list[str]:
+    '''Batches a list of strings into small batches with a bounded
+    total number of characters in each.'''
+
+    batches = []
+
+    stack = s[::-1]
+
+    while stack:
+        batch = []
+        max_size = 0
+
+        while stack:
+            example = stack.pop()
+            max_size = max(max_size, len(example))
+
+            if batch and max_size * (1 + len(batch)) > batch_size:
+                stack.append(example)
+                break
+
+            batch.append(example)
+        batches.append(batch)
+
+    return batches
+
+
 def log(x):
     'Safe version of log'
     return math.log(1e-50 + max(0, x))

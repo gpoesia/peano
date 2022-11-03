@@ -19,7 +19,7 @@ from tqdm import tqdm
 import numpy as np
 
 from environment import Universe
-from util import log, softmax, pop_max, encode_batch, decode_batch, PAD, EOS, BOS, POSITIVE, NEGATIVE, EMPTY
+from util import log, softmax, pop_max, batch_strings, encode_batch, decode_batch, PAD, EOS, BOS, POSITIVE, NEGATIVE, EMPTY
 from solution import Solution, Action
 
 
@@ -338,7 +338,7 @@ class Policy(nn.Module):
                     e.solution = e.solution.push_action(e.action, problem.domain)
                     e.state = e.solution.format(MAX_STATE_LENGTH)
 
-            return recover_episode(problem, beam[0], False)
+            return recover_episode(problem, beam[0] if beam else None, False)
 
     def best_first_search(self, domain: Domain, problem: Problem,
                           max_nodes: int) -> Episode:
@@ -976,12 +976,15 @@ class ContrastivePolicy(Policy):
 
     def embed_raw(self, strs: list[str]) -> torch.Tensor:
         strs = [s[:self.max_len] for s in strs]
-        input = encode_batch(strs, self.get_device(), bos=True, eos=True)
-        input = self.embedding(input.transpose(0, 1))
+        outputs = []
 
-        # TODO: Should batch here if needed to avoid OOMs.
-        output, _ = self.lm(input)
-        return output[0, :, :]
+        for b in batch_strings(strs, batch_size=4096):
+            input = encode_batch(b, self.get_device(), bos=True, eos=True)
+            input = self.embedding(input.transpose(0, 1))
+            lm_output, _ = self.lm(input)
+            outputs.append(lm_output[0, :, :])
+
+        return torch.cat(outputs, dim=0)
 
     def fit(self,
             dataset: list[Episode],
