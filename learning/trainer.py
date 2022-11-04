@@ -96,20 +96,30 @@ class TrainerAgent:
                 iteration = i
                 break
 
-        episodes_path_i = os.path.join(os.getcwd(), f'episodes-{iteration}.pkl')
+        episodes, episodes_iteration = [], -1
 
-        if os.path.exists(episodes_path_i):
-            with open(episodes_path_i, 'rb') as f:
-                episodes = pickle.load(f)
-
-            tactics_path_i = os.path.join(os.getcwd(), f'tactics-{iteration}.pkl')
-            if os.path.exists(tactics_path_i):
+        for it in range(iteration, -1, -1):
+            episodes_path_i = os.path.join(os.getcwd(), f'episodes-{it}.pkl')
+            if os.path.exists(episodes_path_i):
                 with open(episodes_path_i, 'rb') as f:
-                    tactics = pickle.load(f)
+                    episodes = pickle.load(f)
+                episodes_iteration = i
+                print('Loaded', len(episodes), 'episodes from iteration', it)
+                break
 
-            episodes_iteration = i
-        else:
-            episodes, episodes_iteration = [], -1
+        if not episodes:
+            print('Starting with no training episodes.')
+
+        for it in range(iteration, -1, -1):
+            tactics_path_i = os.path.join(os.getcwd(), f'tactics-{it}.pkl')
+            if os.path.exists(tactics_path_i):
+                with open(tactics_path_i, 'rb') as f:
+                    tactics = pickle.load(f)
+                print('Loaded tactics from iteration', it)
+                break
+
+        if not tactics:
+            print('Starting with no tactics.')
 
         device = get_device(self.config.get('gpus') and self.config.gpus[-1])
 
