@@ -1,0 +1,28 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "encoding": {
+    "y": {
+      "field": "Curriculum",
+      "type": "nominal"
+    }
+  },
+  "layer": [
+    {
+      "mark": {
+        "type": "bar"
+      },
+      "encoding": {
+        "x": {"field": "mean", "type": "quantitative",
+              "axis": {"title": "Permutation Distance to the Khan Academy Curriculum"}},
+        "color": { "value": "#5b5"}
+      }
+    },
+    {
+      "mark": { "type": "errorbar", "ticks": true },
+      "encoding": {
+        "x": {"field": "lo", "type": "quantitative", "axis": {"title": ""}},
+        "x2": {"field": "hi"}
+      }
+    }
+  ]
+}
