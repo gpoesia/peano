@@ -406,7 +406,8 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
             for length in range(2, len(arrows) - start + 1):
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
-                                               arguments[start:start+length])
+                                               arguments[start:start+length],
+                                               False)
                 if t.is_connected():
                     tactics_from_slices.append(t)
 
@@ -484,6 +485,23 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
     return induced_tactics
 
 
+def reconstruct_solution_trace(episode: Episode, domain: 'Domain') -> Trace:
+    episode.recover_arguments(domain)
+
+    tactic = Tactic.from_solution_slice('solution',
+                                        0,
+                                        episode.actions[0::2],
+                                        episode.arguments[1::2],
+                                        False)
+
+    problem = domain.start_derivation(episode.problem, episode.goal)
+    trace = tactic.execute(problem.universe, domain)
+
+    assert len(trace) > 0
+
+    return tactic, trace[0]
+
+
 class TacticsTest(unittest.TestCase):
     def test_eval_rewrite_tactic(self):
         import domain
@@ -514,9 +532,9 @@ class TacticsTest(unittest.TestCase):
             't1',
             [
                 Step('eval', ['!sub1'], '?0'),
-                Step('rewrite', ['?0', '!sub2'], '?1'),
+                Step('rewrite', ['?0', '!sub2', '0'], '?1'),
                 Step('eval', ['!sub48'], '?2'),
-                Step('rewrite', ['?2', '?1'], '?3'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
             ]
         )
 
@@ -524,9 +542,9 @@ class TacticsTest(unittest.TestCase):
             't1',
             [
                 Step('eval', ['!sub19'], '?0'),
-                Step('rewrite', ['?0', '!sub42'], '?1'),
+                Step('rewrite', ['?0', '!sub42', '0'], '?1'),
                 Step('eval', ['!sub25'], '?2'),
-                Step('rewrite', ['?2', '?1'], '?3'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
             ]
         )
 

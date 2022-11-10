@@ -175,6 +175,15 @@ def format_sexp(sexp):
     return '(' + ' '.join(map(format_sexp, sexp)) + ')'
 
 
+def toggle_infix(sexp):
+    if isinstance(sexp, str):
+        return sexp
+    children = list(map(toggle_infix, sexp))
+    if len(children) == 3:
+        return [children[1], children[0], children[2]]
+    return children
+
+
 def randomly_mask_atoms(sexp, probability):
     if isinstance(sexp, str):
         if random.random() < probability:

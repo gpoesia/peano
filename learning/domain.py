@@ -101,21 +101,14 @@ class EquationsDomain(Domain):
         blank_domain = peano.get_domain('blank')
 #        self.base_universe = blank_domain.generate(0)
         equations_theory = '''
-real : type.
-
 = : [(t : type) -> t -> t -> prop].
 != : [(t : type) -> t -> t -> prop].
 
+real : type.
 + : [real -> real -> real].
 - : [real -> real -> real].
 * : [real -> real -> real].
 / : [real -> real -> real].
-
-/* Operate on both sides of an equation */
-add_eq : [(= 'a 'b) -> ('c : real) -> (= (+ 'a 'c) (+ 'b 'c))].
-sub_eq : [(= 'a 'b) -> ('c : real) -> (= (- 'a 'c) (- 'b 'c))].
-mul_eq : [(= 'a 'b) -> ('c : real) -> (= (* 'a 'c) (* 'b 'c))].
-div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 
 /* Commutativity */
 +_comm : [((+ 'a 'b) : real) -> (= (+ 'a 'b) (+ 'b 'a))].
@@ -124,10 +117,8 @@ div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 /* Associativity */
 +_assoc_l : [((+ (+ 'a 'b) 'c) : real) -> (= (+ (+ 'a 'b) 'c) (+ 'a (+ 'b 'c)))].
 +_assoc_r : [((+ 'a (+ 'b 'c)) : real) -> (= (+ 'a (+ 'b 'c)) (+ (+ 'a 'b) 'c))].
-
 -+_assoc : [((- (+ 'a 'b) 'c) : real) -> (= (- (+ 'a 'b) 'c) (+ 'a (- 'b 'c)))].
 +-_assoc : [((+ (- 'a 'b) 'c) : real) -> (= (+ (- 'a 'b) 'c) (+ 'a (- 'c 'b)))].
-
 */_assoc_r : [((/ (* 'a 'b) 'c) : real) -> (= (/ (* 'a 'b) 'c) (* 'a (/ 'b 'c)))].
 */_assoc_l : [((* (/ 'a 'b) 'c) : real) -> (= (* (/ 'a 'b) 'c) (* 'a (/ 'b 'c)))].
 
@@ -140,10 +131,17 @@ div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
 -0_id : [((- 'a 0) : real) -> (= (- 'a 0) 'a)].
 *1_id : [((* 'a 1) : real) -> (= (* 'a 1) 'a)].
 /1_id : [((/ 'a 1) : real) -> (= (/ 'a 1) 'a)].
+*0_null : [((* 'a 0) : real) -> (= (* 'a 0) 0)].
+
+/* Operate on both sides of an equation */
+add_eq : [(= 'a 'b) -> ('c : real) -> (= (+ 'a 'c) (+ 'b 'c))].
+sub_eq : [(= 'a 'b) -> ('c : real) -> (= (- 'a 'c) (- 'b 'c))].
+mul_eq : [(= 'a 'b) -> ('c : real) -> (= (* 'a 'c) (* 'b 'c))].
+div_eq : [(= 'a 'b) -> ('c : real) -> (= (/ 'a 'c) (/ 'b 'c))].
+
 div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 -self_null: [((- 'a 'a) : real) -> (= (- 'a 'a) 0)].
 
-*0_null : [((* 'a 0) : real) -> (= (* 'a 0) 0)].
 /* 0_div_null : [((/ 0 'a) : real) -> (= (/ 0 'a) 0)]. */
 '''
         for v in variables:
@@ -201,11 +199,11 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to an equality between x and a rational constant.'
-        for name, val, is_prop, _deps in universe.state():
+        for name, dtype, _, is_prop, _deps in universe.state():
             if not is_prop:
                 continue
             try:
-                m = re.match(r'^\(= x (.*)\)$', val)
+                m = re.match(r'^\(= x (.*)\)$', dtype)
                 if m:
                     Fraction(m.group(1))
                     return name
@@ -218,8 +216,7 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
                          for vals, dtype in universe.state(self.ignore))
 
     def derivation_state(self, universe) -> str:
-        return '. '.join(f'{name}: {val}'
-                         for name, val, _is_prop, _deps in universe.state(self.d_ignore))
+        return universe.state(self.d_ignore)
 
     def actions(self, _universe):
         return list(self.action_set)
@@ -345,20 +342,20 @@ class CombiningLikeTerms(EquationsDomainFromTemplates):
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to find an equality between answer and a simplified term.'
-        for name, val, is_prop, _deps in universe.state():
+        for name, dtype, _, is_prop, _deps in universe.state():
             if not is_prop:
                 continue
             try:
                 # These match simplified expressions:
                 rational = r'-?\d+(/\d+)?'
-                if (CombiningLikeTerms._check_pattern(val, fr'\(= answer {rational}\)', []) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer x\)', []) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] x ({rational})\)\)', [{'0'}]) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(- {rational} x\)\)', []) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(\* x ({rational})\)\)', [{'0', '1'}]) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \(/ x ({rational})\)\)', [{'1'}]) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] \(\* x ({rational})\) ({rational})\)\)', [{'0', '1'}, {'0'}]) or
-                    CombiningLikeTerms._check_pattern(val, fr'\(= answer \([+-] \(/ x ({rational})\) ({rational})\)\)', [{'1'}, {'0'}])):
+                if (CombiningLikeTerms._check_pattern(dtype, fr'\(= answer {rational}\)', []) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer x\)', []) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \([+-] x ({rational})\)\)', [{'0'}]) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \(- {rational} x\)\)', []) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \(\* x ({rational})\)\)', [{'0', '1'}]) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \(/ x ({rational})\)\)', [{'1'}]) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \([+-] \(\* x ({rational})\) ({rational})\)\)', [{'0', '1'}, {'0'}]) or
+                    CombiningLikeTerms._check_pattern(dtype, fr'\(= answer \([+-] \(/ x ({rational})\) ({rational})\)\)', [{'1'}, {'0'}])):
 
                     return name
             except ValueError:
@@ -457,17 +454,16 @@ n : nat.
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
         'Try to an equality between n and a reduced natural number.'
-        for name, val, is_prop, _deps in universe.state():
+        for name, dtype, _, is_prop, _deps in universe.state():
             if not is_prop:
                 continue
-            m = re.match(r'^\(= n (.*)\)$', val)
+            m = re.match(r'^\(= n (.*)\)$', dtype)
             if m and m.groups()[0].find('add') == -1:
                 return name
         return None
 
     def derivation_state(self, universe) -> str:
-        return '. '.join(f'{name}: {val}'
-                         for name, val, _is_prop, _deps in universe.state(self.d_ignore))
+        return universe.state(self.d_ignore)
 
     def derivation_actions(self, _universe):
         return list(self.d_action_set)

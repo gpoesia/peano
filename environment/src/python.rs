@@ -265,7 +265,7 @@ impl PyDerivation {
         }
     }
 
-    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(String, String, bool, Vec<String>)> {
+    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(String, String, Option<String>, bool, Vec<String>)> {
         let mut s = Vec::new();
 
         for name in self.universe.context_.insertion_order.iter() {
@@ -282,7 +282,11 @@ impl PyDerivation {
                 None => vec![],
             };
 
-            s.push((name.clone(), value, def.is_prop(&self.universe.context_), dependencies));
+            s.push((name.clone(),
+                    def.dtype.to_string(),
+                    def.value.as_ref().map(|v| v.to_string()),
+                    def.is_prop(&self.universe.context_),
+                    dependencies));
         }
 
         s

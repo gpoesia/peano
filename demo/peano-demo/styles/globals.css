@@ -1,0 +1,107 @@
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.trace {
+  display: flex;
+  flex-direction: row;
+  padding: 5px;
+}
+
+.traceColumn {
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 25px;
+  margin-right: 5px;
+  background-color: green;
+}
+
+.traceButton {
+  height: 25px;
+  width: 25px;
+  text-align: center;
+  background-color: #aaffaa;
+  color: black;
+  padding: 0;
+  margin-right: 5px;
+}
+
+.step-annotation {
+  font-size: 75%;
+  font-style: italic;
+}
+
+.root {
+  display: flex;
+  flex-direction: row;
+}
+
+.interactive-solution {
+  flex: 1;
+  padding: 2em;
+  display: flex;
+  flex-direction: row;
+}
+
+.solution-example {
+  flex: 1;
+  padding: 2em;
+}
+
+.solution-column {
+  flex: 1;
+  padding: 2em;
+}
+
+.solution-actions {
+  padding-left: calc(3em + 20px);
+}
+
+.solution-action {
+  margin-right: 1em;
+}
+
+.solution-box {
+  width: 50%;
+  height: 20em;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 3px;
+}
+
+.solution-markers {
+  display: flex;
+  flex-direction: column;
+  margin-right: 5px;
+  padding: 3px;
+}
+
+.solution-marker {
+  height: 20px;
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  vertical-align: bottom;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+  }
+  body {
+  }
+}

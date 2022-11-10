@@ -23,6 +23,10 @@ class Action:
     def __str__(self):
         return self.value
 
+
+TWO_STAGE_SOLUTIONS = True
+
+
 @dataclass
 class Solution:
     'Represents a step-by-step solution'
@@ -59,7 +63,7 @@ class Solution:
 
         return states
 
-    def push_action(self, action, domain):
+    def push_action(self, action, domain) -> 'Solution':
         if action.kind == 'arrow':
             return Solution(self.problem,
                             self.goal,
@@ -68,7 +72,7 @@ class Solution:
                             subdefinitions=self.subdefinitions,
                             actions=self.actions + [(action.arrow, None)],
                             derivation=self.derivation)
-        elif action.kind == 'result':
+        elif action.kind in ('result', 'arrow+result'):
             if action.definitions is None:
                 derivation = self.derivation
                 subdefs = []
@@ -82,10 +86,28 @@ class Solution:
                             results=self.results + [action.value],
                             subdefinitions=self.subdefinitions + [subdefs],
                             arguments=self.arguments + [action.arguments],
-                            actions=self.actions,
+                            actions=self.actions + ([] if action.kind == 'result'
+                                                    else [(action.arrow, None)]),
                             derivation=derivation)
         else:
             raise ValueError(f'Invalid action kind {action.kind}')
+
+    def push_actions_by_name(self, actions: list[str], domain) -> 'Solution':
+        solution = self
+
+        for a in actions:
+            found = False
+
+            for succ in solution.successors(domain):
+                if succ.value == a:
+                    found = True
+                    solution = solution.push_action(succ, domain)
+                    break
+
+            if not found:
+                raise ValueError(f'Failed to apply action {a}')
+
+        return solution
 
     def __lt__(self, rhs):
         return self.score < rhs.score
@@ -114,28 +136,61 @@ class Solution:
         tactics = domain.tactic_actions()
         actions = domain.derivation_actions(self.derivation) + tactics
 
-        if not self._is_action_chosen():
-            return [Action(kind='arrow', arrow=a, value=a) for a in actions]
-        elif self.actions[-1][0] in tactics:
-            tactic = domain.get_tactic(self.actions[-1][0])
-            traces = tactic.execute(self.derivation, domain)
-            if not traces:
-                return [Action(kind='result', definitions=None, value='_')]
-            return [Action(kind='result',
-                           definitions=t.definitions,
-                           universe=t.universe,
-                           value=domain.value_of(t.universe, t),
-                           arguments=t.generating_arguments())
-                    for t in traces]
+        if TWO_STAGE_SOLUTIONS:
+            if not self._is_action_chosen():
+                return [Action(kind='arrow', arrow=a, value=a) for a in tactics]
+            elif self.actions[-1][0] in tactics:
+                tactic = domain.get_tactic(self.actions[-1][0])
+                traces = tactic.execute(self.derivation, domain)
+                if not traces:
+                    return []
+                    return [Action(kind='result', definitions=None, value='_')]
+                return [Action(kind='result',
+                               definitions=t.definitions,
+                               universe=t.universe,
+                               value=domain.value_of(t.universe, t),
+                               arguments=t.generating_arguments())
+                        for t in traces]
+            else:
+                results = self.derivation.apply(self.actions[-1][0])
+                if not results:
+                    return []
+                return [Action(kind='result',
+                               definitions=[('!result', d)],
+                               value=self.derivation.value_of(d),
+                               arguments=d.generating_arguments())
+                        for d in results]
         else:
-            results = self.derivation.apply(self.actions[-1][0])
-            if not results:
-                return []
-            return [Action(kind='result',
-                           definitions=[('!result', d)],
-                           value=self.derivation.value_of(d),
-                           arguments=d.generating_arguments())
-                    for d in results]
+            successors = []
+            for action in actions:
+                if action in tactics:
+                    tactic = domain.get_tactic(action)
+                    traces = tactic.execute(self.derivation, domain)
+                    for t in traces:
+                        successors.append(Action(kind='arrow+result',
+                                                 arrow=action,
+                                                 definitions=t.definitions,
+                                                 universe=t.universe,
+                                                 value=domain.value_of(t.universe, t),
+                                                 arguments=t.generating_arguments()))
+                else:
+                    continue
+                    results = self.derivation.apply(action)
+                    for d in results:
+                        successors.append(Action(kind='arrow+result',
+                                                 arrow=action,
+                                                 definitions=[('!result', d)],
+                                                 value=self.derivation.value_of(d),
+                                                 arguments=d.generating_arguments()))
+            return successors
+
+
+@dataclass
+class SolutionStep:
+    arrow: str
+    arguments: str
+    result: str
+
 
 class SolutionTest(unittest.TestCase):
     def test_successors(self):
