@@ -101,7 +101,7 @@ def interact_with_environment(domain):
     sol = Solution.from_problem(p)
 
     while not domain.derivation_done(sol.derivation):
-        print('### Solution:\n', sol.format(100))
+        print('### Solution:\n', sol.format(200), sep='')
         actions = sol.successors(domain)
         a = choose_from_list('Action:', actions)
         prob *= 1 / len(actions)
