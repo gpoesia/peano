@@ -16,7 +16,22 @@
     },
     "y": {"field": "Curriculum", "type": "nominal", "axis": {"title": ""}},
     "color": {"field": "Section", "type": "nominal",
-              "scale": {"scheme": "set1"},
+              "scale": {
+                  "domain": [
+                      "Substitution and Evaluating Expressions",
+                      "Combining Like Terms",
+                      "One-Step Addition and Subtraction Equations",
+                      "One-Step Multiplication and Division Equations",
+                      "Two-Step Equations"
+                  ],
+                  "range": [
+                      "#00ff00",
+                      "#0000ff",
+                      "#ff0000",
+                      "#fe5d26",
+                      "#6c6ea0"
+                  ]
+              },
               "legend": { "labelLimit": 500, "orient": "none", "legendX": 0, "legendY": 150 }}
   }
 }
