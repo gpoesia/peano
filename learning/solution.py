@@ -138,7 +138,7 @@ class Solution:
 
         if TWO_STAGE_SOLUTIONS:
             if not self._is_action_chosen():
-                return [Action(kind='arrow', arrow=a, value=a) for a in tactics]
+                return [Action(kind='arrow', arrow=a, value=a) for a in actions]
             elif self.actions[-1][0] in tactics:
                 tactic = domain.get_tactic(self.actions[-1][0])
                 traces = tactic.execute(self.derivation, domain)
