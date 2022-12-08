@@ -169,10 +169,12 @@ def randomize_atoms(sexp, criteria, sample, mapping):
     return [randomize_atoms(s, criteria, sample, mapping) for s in sexp]
 
 
-def format_sexp(sexp):
+def format_sexp(sexp, level=0, indent=0):
     if isinstance(sexp, str):
-        return sexp
-    return '(' + ' '.join(map(format_sexp, sexp)) + ')'
+        return level * indent * ' ' + sexp
+    sep = ' ' if not indent else '\n  '
+    return ((level * indent * ' ') +
+            '(' + sep.join(map(lambda e: format_sexp(e, level + 1, indent), sexp)) + ')')
 
 
 def toggle_infix(sexp):
