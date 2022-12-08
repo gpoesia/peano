@@ -138,10 +138,10 @@ impl Derivation {
                     // Substitute the evaluated terms back for names if possible.
                     // This should always be possible when using Peano as an environment,
                     // since all sub-terms will always be named.
-                    arguments: inputs.iter().map(|v| match self.existing_values.get(v) {
+                    arguments: inputs.clone(), /* inputs.iter().map(|v| match self.existing_values.get(v) {
                         Some(name) => Term::Atom { name: name.clone() }.rc(),
-                        None => v.clone()
-                    }).collect()
+                        None => panic!("Failed to find {}", v.to_string())
+                    }).collect() */
                 }),
                 output_type.clone()));
             return;
@@ -161,7 +161,8 @@ impl Derivation {
             }
 
             let def = self.context_.lookup(&name).unwrap();
-            let val = Term::Atom { name: name.clone() }.rc().eval(&self.context_);
+            let val_name = Term::Atom { name: name.clone() }.rc();
+            let val = val_name.eval(&self.context_);
 
             let mut unifier = Unifier::new();
 
@@ -176,7 +177,7 @@ impl Derivation {
                 // `val` can be used as this argument. Make the necessary substitutions to
                 // other parameter types (if any, i.e., if this is a dependent arrow) and
                 // keep going.
-                inputs.push(val);
+                inputs.push(val_name);
 
                 let mut remaining_types : Vec<Rc<Term>> = input_types.clone();
                 let mut output_type = output_type.clone();
