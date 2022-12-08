@@ -68,9 +68,7 @@ tri_angle_sum : [((tri_pts 'P 'Q 'R) : triangle) ->
                           (measure (angle_pts 'R 'P 'Q))) 180)].
 
 verify isosceles_triangle_angle {
-    let P : point.
-    let Q : point.
-    let R : point.
+    let P : point. let Q : point. let R : point.
 
     let T : triangle = (tri_pts P Q R).
     let apqr : angle = (angle_pts P Q R).
@@ -81,8 +79,7 @@ verify isosceles_triangle_angle {
     let beta : real = (measure aqrp).
     let gamma : real = (measure arpq).
 
-    assume (= alpha beta).
-    assume (= gamma 100).
+    assume (= alpha beta). assume (= gamma 100).
 
     show (= (+ (+ alpha beta) gamma) 180) by tri_angle_sum.
     show (= (+ (+ beta beta) gamma) 180) by rewrite.

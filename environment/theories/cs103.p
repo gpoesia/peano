@@ -3,7 +3,7 @@ real : type.
 not : [prop -> prop].
 contradiction : prop.
 
-p_and_not_p : [('p : prop) -> 'p -> (not 'p) -> contradiction].
+p_and_not_p : [(_ : 'p) -> (not 'p) -> contradiction].
 
 = : [(t : type) -> t -> t -> prop].
 != : [(t : type) -> t -> t -> prop].
@@ -81,11 +81,12 @@ verify n_even_implies_n_squared_even {
     show (= (* n n) (* n n)) by eq_refl.
     show (= (* n n) (* (* 2 (even_witness n_even)) n)) by rewrite.
 
-    show (= (* (* 2 (even_witness n_even)) n) (* 2 (* (even_witness n_even) n))) by *_assoc_l.
+    show (= (* (* 2 (even_witness n_even)) n)
+            (* 2 (* (even_witness n_even) n))) by *_assoc_l.
     show (= (* n n) (* 2 (* (even_witness n_even) n))) by rewrite.
     show (= (* 2 (* (even_witness n_even) n)) (* n n)) by eq_symm.
 
-    show (even (* 2 (* (even_witness n_even) n))) by even_def.
+    show (even (* 3 (* (even_witness n_even) n))) by even_def.
     show (even (* n n)) by rewrite.
 
     construct (square n) by square.
@@ -163,18 +164,18 @@ verify sum_of_squares_one_is_even {
     assume (= (+ (square a) (square b)) (square c)).
 
     /* If a, b and c are odd, then all of their squares are odd. */
-    show (odd (square a)) by n_odd_implies_n_squared_odd.
+    /* show (odd (square a)) by n_odd_implies_n_squared_odd.
     show (odd (square b)) by n_odd_implies_n_squared_odd.
-    show (odd (square c)) by n_odd_implies_n_squared_odd.
+    show (odd (square c)) by n_odd_implies_n_squared_odd. */
 
     /* The sum of two odds is even. */
-    show (odd (+ (square a) (square b))) by sum_of_odds_is_even.
+    /* show (odd (+ (square a) (square b))) by sum_of_odds_is_even. */
 
     /* Then square of c is even. */
-    show (even (* c c)) by rewrite.
+    /* show (even (* c c)) by rewrite.
 
     /* But if it is even, then it is not odd. */
-    show (not (odd (square c))) by even_not_odd.
+    /* show (not (odd (square c))) by even_not_odd. */
 
     /* Since we had (odd (square c)), this is a contradiction.
     show contradiction by p_and_not_p.
