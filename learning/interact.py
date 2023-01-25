@@ -109,7 +109,7 @@ def interact_with_environment(domain):
         i += 1
 
     print('Solved in', i, 'steps!')
-    print('Solution:\n', sol.format(100))
+    print('Solution:\n', sol.format(2000))
     print('Probability of this trajectory for a random policy:', prob)
 
 
