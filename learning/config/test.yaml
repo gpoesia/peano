@@ -1,31 +1,14 @@
-domain: "equations"
+task: test
 
-agent:
-    eval_every: 1000
-    eval_problems: 100
-    episodes: 100000
-    depth: 6
-    search_budget: 100
-    rollout_type: BeamSearch
-    beam_size: 10
-    epsilon: 0.1
-    max_examples: 10000
-    gradient_steps: 1
-    only_optimize_when_solved: false
-    batch_size: 2048
-    train_rollouts_temperature: 1
-    mask_non_decision_tokens: false
+domain: nat-add
+tactics: null
+output: nat-add-episodes.pkl
 
-policy:
-    type: DecisionGRU
-    max_negatives_per_episode: 1000
-    batch_size: 1024
-    discard_unsolved: true
-    gru:
-        embedding_size: 128
-        hidden_size: 512
-        layers: 2
-
-job:
-    wandb_project: peano
-    description: "Test run"
+searcher:
+    model_type: random-policy
+    model_path: null
+    epsilon: 0.0
+    max_depth: 16
+    max_nodes: 1000000
+    seed_interval: [0, 100]
+    device: "cpu"

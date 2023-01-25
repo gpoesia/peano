@@ -31,12 +31,14 @@ MAX_NODES_LIMIT = 50000
 
 
 def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
-                   epsilon, rerank_top_k, model_type, model_path, seeds, device):
-    out_path = f'rollouts/it{iteration}/searcher{rank}.pt'
+                   epsilon, model_type, model_path, seeds, device):
+    out_path = (f'rollouts/it{iteration}/searcher{rank}.pt'
+                if rank is not None
+                else None)
 
     m = load_search_model(model_type, model_path, device=device)
 
-    if os.path.exists(out_path):
+    if out_path is not None and os.path.exists(out_path):
         with open(out_path, 'rb') as f:
             return pickle.load(f)
 
@@ -51,10 +53,11 @@ def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
 
     episodes = agent.run_batch(seeds)
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    if out_path is not None:
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    with open(out_path, 'wb') as f:
-        pickle.dump(episodes, f)
+        with open(out_path, 'wb') as f:
+            pickle.dump(episodes, f)
 
     return episodes
 
@@ -64,7 +67,6 @@ class TrainerAgent:
         self.batch_size = config.batch_size
         self.iterations = config.iterations
         self.n_searchers = config.n_searchers
-        self.rerank_top_k = config.rerank_top_k
         self.max_nodes = config.max_nodes
         self.max_depth = config.max_depth
         self.model_type = config.model.type
@@ -176,7 +178,6 @@ class TrainerAgent:
                             'max_nodes': max_nodes,
                             'max_depth': self.max_depth,
                             'epsilon': self.epsilon,
-                            'rerank_top_k': self.rerank_top_k,
                             'model_type': self.model_type,
                             'model_path': last_checkpoint,
                             'seeds': random.choices(seeds, k=self.batch_size),
@@ -307,6 +308,27 @@ def main(cfg: DictConfig):
 
         trainer = TrainerAgent(cfg.trainer)
         trainer.learn(seeds, eval_seeds)
+
+    elif cfg.task == 'test':
+        tactics = []
+
+        if cfg.get('tactics'):
+            with open(cfg.tactics, 'rb') as f:
+                tactics = pickle.load(f)
+
+        episodes = spawn_searcher(None, None,
+                                  cfg.domain,
+                                  tactics,
+                                  cfg.searcher.max_nodes,
+                                  cfg.searcher.max_depth,
+                                  cfg.searcher.epsilon,
+                                  cfg.searcher.model_type,
+                                  cfg.searcher.model_path,
+                                  range(*cfg.searcher.seed_interval),
+                                  torch.device(cfg.searcher.device))
+
+        with open(cfg.output, 'wb') as f:
+            pickle.dump(episodes, f)
 
 
 if __name__ == '__main__':
