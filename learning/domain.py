@@ -98,8 +98,6 @@ class EquationsDomain(Domain):
                  variables=['x'],
                  actions=None):
         super().__init__()
-        blank_domain = peano.get_domain('blank')
-#        self.base_universe = blank_domain.generate(0)
         equations_theory = '''
 = : [(t : type) -> t -> t -> prop].
 != : [(t : type) -> t -> t -> prop].
@@ -223,6 +221,60 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
 
     def derivation_actions(self, _universe):
         return list(self.d_action_set)
+
+class DomainFromTheory(Domain):
+    'Creates a domain from one of the theories implemented in the environment.'
+    def __init__(self, theory, actions):
+        with open(os.path.join(os.path.dirname(__file__),
+                               '..', 'environment', 'theories', theory)) as f:
+            self.theory = str(f.read())
+
+        self.base_derivation = peano.PyDerivation()
+        self.base_derivation.incorporate(self.theory)
+
+        self.initial_theory_state = set([s[0] for s in self.base_derivation.state()])
+        self.actions = actions
+
+    def derivation_actions(self, _universe):
+        return self.actions
+
+    def derivation_state(self, universe):
+        return universe.state(self.initial_theory_state)
+
+
+class NaturalAddition(DomainFromTheory):
+    def __init__(self, max_n=8):
+        super().__init__('arithmetic.p', ['rewrite', '+zl', '+s'])
+        self.max_n = max_n
+
+    @staticmethod
+    @functools.cache
+    def _format_unary_nat(n):
+        return 'z' if n == 0 else f'(s {NaturalAddition._format_unary_nat(n-1)})'
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+        n1 = random.randint(0, self.max_n // 2)
+        n2 = random.randint(0, self.max_n)
+        n_term = NaturalAddition._format_unary_nat(n1)
+        m_term = NaturalAddition._format_unary_nat(n2)
+        eq = f'(= ans (n+ {n_term} {m_term}))'
+        return self.start_derivation(eq, 'nat+ ans')
+
+    def start_derivation(self, eq, goal):
+        u = self.base_derivation.clone()
+        u.incorporate(f'ans : nat. eq : {eq}.')
+        return Problem(u, eq, goal, self)
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to find an equality between ans and a reduced natural number.'
+        for name, dtype, _, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            m = re.match(r'^\(= ans (.*)\)$', dtype)
+            if m and m.groups()[0].find('n+') == -1:
+                return name
+        return None
 
 
 class EquationsCtDomain(EquationsDomain):
@@ -405,7 +457,6 @@ class TwoStepEquations(EquationsDomainFromTemplates):
 
 class CountingDomain(Domain):
     def __init__(self, max_term=50):
-        blank_domain = peano.get_domain('blank')
         nat_theory = '''
 nat : type.
 
@@ -515,6 +566,7 @@ class PrecomputedProblemSet(Domain):
 DOMAINS = {
     'equations': EquationsDomain,
     'counting': CountingDomain,
+    'nat-add': NaturalAddition,
     'equations-ct': EquationsCtDomain,
     'subst-eval': SubstitutionAndEvaluatingExpressions,
     'comb-like': CombiningLikeTerms,
