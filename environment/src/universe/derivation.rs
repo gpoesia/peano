@@ -6,7 +6,6 @@ use std::io;
 use std::path::Path;
 use std::iter::once;
 
-use egg::*;
 use num_rational::Rational64;
 
 use super::universe::{Universe, Scope};

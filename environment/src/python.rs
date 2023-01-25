@@ -275,8 +275,6 @@ impl PyDerivation {
 
             let def = self.universe.context_.lookup(name).unwrap();
 
-            let value = value_of(&def, &self.universe.context_);
-
             let dependencies = match &def.value {
                 Some(v) => v.free_atoms().iter().map(|v| v.clone()).collect(),
                 None => vec![],

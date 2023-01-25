@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use crate::universe::{Term, Universe, EGraphUniverse, Definition};
+use crate::universe::{Term, Universe, EGraphUniverse};
 
 use commoncore::domain::equations::{Equations as CCEquations, Term as CCTerm};
 
@@ -9,19 +9,16 @@ pub struct Equations {
     #[allow(dead_code)]
     cc_equations: CCEquations,
     base_universe: EGraphUniverse,
-    real_dtype: Rc<Term>,
     variable_term: Rc<Term>,
 }
 
 impl Equations {
     pub fn _new_with_templates(templates: &str) -> Equations {
         let u = EGraphUniverse::new();
-        // u.incorporate(&include_str!("../../theories/equations.p").parse().unwrap());
 
         Equations {
             cc_equations: CCEquations::new(templates),
             base_universe: u,
-            real_dtype: Rc::new(Term::Atom { name: "real".to_string() }),
             variable_term: Rc::new(Term::Atom { name: "x".to_string() }),
         }
     }
