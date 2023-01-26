@@ -273,9 +273,8 @@ class Tactic:
                 # API for specifying all known parameters, and only being non-deterministic on the holes.
                 new_defs = d.apply(s.arrow, trace.universe, False,
                                    (scope or []) + [v
-                                    for k, v in trace.assignments.items()
-                                    if is_result_name(k)])
-
+                                                    for k, v in trace.assignments.items()
+                                                    if is_result_name(k)])
                 # 2- For each valid result, make a new trace.
                 for definition in new_defs:
                     args = definition.generating_arguments()
@@ -284,9 +283,6 @@ class Tactic:
 
                     if new_assignments is not None:
                         u = trace.universe.clone()
-                        # (definition
-                        #     if isinstance(definition, Trace)
-                        #     else trace).universe.clone()
 
                         if isinstance(definition, Trace):
                             subdef_name = definition.return_name()

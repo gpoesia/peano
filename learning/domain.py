@@ -196,7 +196,7 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
         return False
 
     def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
-        'Try to an equality between x and a rational constant.'
+        'Try to find an equality between x and a rational constant.'
         for name, dtype, _, is_prop, _deps in universe.state():
             if not is_prop:
                 continue

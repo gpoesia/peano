@@ -754,7 +754,7 @@ impl<'a> Term {
     pub fn fmt_in_context(self: &Rc<Term>, context: &Context, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.as_ref() {
             Term::Atom { name } => {
-                if name.starts_with("!sub") {
+                if name.contains('@') {
                     if let Some(Definition { dtype: _, value: Some(value) }) = context.lookup(&name) {
                         return value.fmt_in_context(context, f);
                     }

@@ -14,6 +14,7 @@ use super::equivalence::AbstractSExp;
 use super::verifier::{VerificationScript, VerificationError};
 
 const REAL_TYPE_CONST: &str = &"real";
+const PATH_EXPR_SEPARATOR: &str = "@";
 const LOCAL_DEFINITION_PREFIX: &str = &"!tac"; // Terms that are local to a tactic.
 
 #[derive(Clone)]
@@ -25,8 +26,8 @@ pub struct Derivation {
 }
 
 // Returns whether the string contains a valid `real` constant.
-// For now, we only handle integers in built-in operations.
-// In the future, we'll have to decide what do built-in reals really mean.
+// For now, we only handle rationals in built-in operations.
+// In the future, we'll likely get rid of builtin `eval` and this will no longer exist.
 fn is_real_const(s: &str) -> bool {
     s.parse::<Rational64>().is_ok()
 }
@@ -153,6 +154,7 @@ impl Derivation {
         };
 
         let param = predetermined.get(next).unwrap_or(&None).map(|name| vec![name.clone()]);
+        let mut seen_values = HashSet::new();
 
         for name in param.as_ref().unwrap_or(&self.context_.insertion_order) {
             if out_of_scope(&name, scope) {
@@ -162,6 +164,12 @@ impl Derivation {
             let def = self.context_.lookup(&name).unwrap();
             let val_name = Term::Atom { name: name.clone() }.rc();
             let val = val_name.eval(&self.context_);
+
+            if seen_values.contains(&val) {
+                continue;
+            }
+
+            seen_values.insert(val.clone());
 
             let mut unifier = Unifier::new();
 
@@ -445,7 +453,9 @@ impl Derivation {
         }
     }
 
-    fn define_subterms(&mut self, t: &Rc<Term>, is_root: bool, subterm_names: &mut Vec<String>) {
+    fn define_subterms(&mut self, t: &Rc<Term>, is_root: bool,
+                       subterm_names: &mut Vec<String>,
+                       path: &mut Vec<String>) {
         let is_real_atom = match t.as_ref() {
             Term::Atom { name } => {
                 let real_type = Rc::new(Term::Atom { name: String::from(REAL_TYPE_CONST) });
@@ -455,17 +465,20 @@ impl Derivation {
                     self.context_.define(name.clone(),
                                          Definition { dtype: real_type,
                                                       value: None });
-                    // subterm_names.push(name.clone());
                     true
                 } else {
                     false
                 }
             },
             Term::Application { function, arguments } => {
-                self.define_subterms(&function, false, subterm_names);
+                path.push(String::from("0"));
+                self.define_subterms(&function, false, subterm_names, path);
+                path.pop();
 
-                for t in arguments.iter() {
-                    self.define_subterms(&t, false, subterm_names);
+                for (i, t) in arguments.iter().enumerate() {
+                    path.push((i+1).to_string());
+                    self.define_subterms(&t, false, subterm_names, path);
+                    path.pop();
                 }
 
                 false
@@ -473,9 +486,9 @@ impl Derivation {
             _ => false,
         };
 
-        if !is_root && !is_real_atom && !self.existing_values.contains_key(t) &&
-            !self.is_builtin_application(t) {
-            let dname = format!("!sub{}", self.next_term_id());
+        if !is_root && !is_real_atom && !self.is_builtin_application(t) {
+            let dname = path.join(PATH_EXPR_SEPARATOR);
+            // let dname = format!("!sub{}", self.next_term_id());
             let dtype = t.get_type(&self.context_);
 
             self.existing_values.insert(t.clone(), dname.clone());
@@ -520,11 +533,11 @@ impl Universe for Derivation {
 
         let mut subterm_names = vec![];
 
-        self.define_subterms(&def.dtype, false, &mut subterm_names);
+        self.define_subterms(&def.dtype, false, &mut subterm_names, &mut vec![name.clone(), String::from("type")]);
 
         if !def.is_prop(&self.context_) {
             if let Some(value) = &def.value {
-                self.define_subterms(&value, true, &mut subterm_names);
+                self.define_subterms(&value, true, &mut subterm_names, &mut vec![name.clone()]);
                 self.existing_values.entry(value.clone()).or_insert_with(|| name.clone());
             }
         }
@@ -721,7 +734,8 @@ fn rewrite_all(term: &Rc<Term>, source: &Rc<Term>, target: &Rc<Term>) -> Vec<Rc<
 fn out_of_scope(name: &String, scope: &Option<Scope>) -> bool {
     if name.starts_with(LOCAL_DEFINITION_PREFIX) {
         match scope {
-            Some(s) => !s.contains(name),
+            Some(s) => !s.contains(&String::from(name.split(PATH_EXPR_SEPARATOR)
+                                                 .next().unwrap())),
             None => true,
         }
     } else {
