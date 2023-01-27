@@ -33,6 +33,26 @@ def is_result_name(name: str):
 def is_parameter_name(name: str):
     return name.startswith('?') and name[1:].isalpha()
 
+def split_location(name: str) -> (str, list[str]):
+    name, *loc = name.split('@')
+    return name, loc
+
+def generalize_locations(name: str, l1: list[str], l2: list[str]) -> str:
+    if not (l1 or l2):
+        return name
+
+    if l1 == l2:
+        return f'{name}@{l1.join("@")}'
+
+    return f'{name}@*'
+
+def generalize_location_expression(name: str, location: list[str]) -> str:
+    return name if not location else f'{name}@*'
+
+def is_location_generalization_of(l1: list[str], l2: list[str]) -> bool:
+    'Returns whether location l1 is a generalization of l2.'
+    return l1 == l2 or l1 == ['*']
+
 
 @dataclass(eq=True, frozen=True)
 class Step:
@@ -97,7 +117,7 @@ class Tactic:
 
     @cached_property
     def number_of_parameters(self):
-        return len(set(p for s in self.steps for p in s.arguments
+        return len(set(p for s in self.steps for p, *_ in map(split_location, s.arguments)
                        if is_parameter_name(p)))
 
     def __eq__(self, rhs: 'Tactic'):
@@ -166,14 +186,17 @@ class Tactic:
             if s1.arrow != s2.arrow:
                 return False, None
 
-            for a1, a2 in zip(s1.arguments, s2.arguments):
+            for arg1, arg2 in zip(s1.arguments, s2.arguments):
+                a1, l1 = split_location(arg1)
+                a2, l2 = split_location(arg2)
+
                 if is_parameter_name(a1):
                     if a1 in assignment:
                         if assignment[a1] != a2:
                             return False, None
                     else:
                         assignment[a1] = a2
-                elif a1 != a2:
+                elif a1 != a2 or not is_location_generalization_of(l1, l2):
                     return False, None
 
         return True, assignment
@@ -202,7 +225,10 @@ class Tactic:
 
             unified_args = []
 
-            for a1, a2 in zip(s1.arguments, s2.arguments):
+            for arg1, arg2 in zip(s1.arguments, s2.arguments):
+                a1, l1 = split_location(arg1)
+                a2, l2 = split_location(arg2)
+
                 # If they're both equal arguments that are not parameter names, no need
                 # to generalize, just reuse the same value. Does not hold for parameters
                 # since we want to make sure we'll always use parameters introduced in the lgg,
@@ -213,16 +239,16 @@ class Tactic:
                 # For example, we could have params_to_lgg[('?b', '?b')] = '?d'
                 # if ?d is the lgg parameter that corresponds to '?b' in both tactics.
                 if a1 == a2 and not is_parameter_name(a1):
-                    unified_args.append(a1)
+                    unified_args.append(generalize_locations(a1, l1, l2))
                 elif (a1, a2) in params_to_lgg:
                     # If we already have a parameter that is instantiated to a1 in self
                     # and to a2 in t, reuse it.
-                    unified_args.append(params_to_lgg[(a1, a2)])
+                    unified_args.append(generalize_locations(params_to_lgg[(a1, a2)], l1, l2))
                 else:
                     # Otherwise, need to make a new parameter.
                     name = next_parameter_name(len(params_to_lgg))
                     params_to_lgg[(a1, a2)] = name
-                    unified_args.append(name)
+                    unified_args.append(generalize_locations(name, l1, l2))
 
             lgg_steps.append(Step(s1.arrow, unified_args, s1.result))
 
@@ -245,15 +271,16 @@ class Tactic:
         for s in self.steps:
             new_args = []
 
-            for a in s.arguments:
+            for arg in s.arguments:
+                a, loc = split_location(arg)
                 if is_result_name(a):
-                    new_args.append(a)
+                    new_args.append(generalize_location_expression(a, loc))
                 elif a in parameter_values:
-                    new_args.append(parameter_values[a])
+                    new_args.append(generalize_location_expression(parameter_values[a], loc))
                 else:
                     new_param_name = next_parameter_name(len(parameter_values))
                     parameter_values[new_param_name] = a
-                    new_args.append(new_param_name)
+                    new_args.append(generalize_location_expression(new_param_name, loc))
 
             new_steps.append(Step(s.arrow, new_args, s.result))
 
@@ -560,6 +587,83 @@ class TacticsTest(unittest.TestCase):
         assert t1.is_generalization_of(t1)[0]
         assert t2.is_generalization_of(t2)[0]
 
+
+    def test_generalize_tactic(self):
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['!sub1'], '?0'),
+                Step('rewrite', ['?0', '!sub2', '0'], '?1'),
+                Step('eval', ['!sub48'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        t2 = Tactic(
+            't1',
+            [
+                Step('eval', ['!sub19'], '?0'),
+                Step('rewrite', ['?0', '!sub42', '0'], '?1'),
+                Step('eval', ['!sub25'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        lgg = t1.generalize(t2, 't1+t2')
+
+        assert lgg is not None
+        assert lgg.is_generalization_of(t1)[0]
+        assert lgg.is_generalization_of(t2)[0]
+        assert lgg.is_generalization_of(lgg)[0]
+
+        assert not t1.is_generalization_of(lgg)[0]
+        assert not t2.is_generalization_of(lgg)[0]
+
+        assert not t1.is_generalization_of(t2)[0]
+        assert not t2.is_generalization_of(t1)[0]
+
+        assert t1.is_generalization_of(t1)[0]
+        assert t2.is_generalization_of(t2)[0]
+
+    def test_generalize_locations(self):
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['eq@type@0'], '?0'),
+                Step('rewrite', ['?0', 'eq', '0'], '?1'),
+                Step('eval', ['?1@type@1'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        t2 = Tactic(
+            't2',
+            [
+                Step('eval', ['!tac2@type@1'], '?0'),
+                Step('rewrite', ['?0', '!tac2', '0'], '?1'),
+                Step('eval', ['?1@type@0'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        lgg = t1.generalize(t2, 't1+t2')
+
+        assert lgg is not None
+        assert lgg.number_of_parameters == 1
+
+        assert lgg.is_generalization_of(t1)[0]
+        assert lgg.is_generalization_of(t2)[0]
+        assert lgg.is_generalization_of(lgg)[0]
+
+        assert not t1.is_generalization_of(lgg)[0]
+        assert not t2.is_generalization_of(lgg)[0]
+
+        assert not t1.is_generalization_of(t2)[0]
+        assert not t2.is_generalization_of(t1)[0]
+
+        assert t1.is_generalization_of(t1)[0]
+        assert t2.is_generalization_of(t2)[0]
+
     def test_tactic_composition(self):
         import domain
         import policy
@@ -689,7 +793,7 @@ class TacticsTest(unittest.TestCase):
 
         # This test should fail if we disable scoping in the environment,
         # e.g. by returning false in
-        # environment/src/universe/derivation.rs: fn _of_scope()
+        # environment/src/universe/derivation.rs: fn out_of_scope()
 
         d = domain.make_domain('subst-eval', [])
         problem = d.start_derivation('(= x (+ (+ 9 0) 0))', '(= x ?)')
