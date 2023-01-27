@@ -335,7 +335,12 @@ class Tactic:
 
         assignments = trace.assignments.copy()
 
-        for concrete, abstract in zip(concrete_args, abstract_args):
+        for (concrete, _), (abstract, _) in zip(map(split_location, concrete_args),
+                                                map(split_location, abstract_args)):
+            # NOTE: For now, this is ignoring the location expressions.
+            # This is probably fine, since locations in tactics are this trivial lattice
+            # anyway (empty is bottom, or wildcard is top), and perhaps it will eventually
+            # converge to always be the wildcard.
             if concrete == assignments.get(abstract, abstract):
                 continue
 
@@ -694,6 +699,30 @@ class TacticsTest(unittest.TestCase):
         assert episode.actions[0] == 't2'
 
         episode.recover_arguments(d)
+
+    def test_execution_with_locations(self):
+        import domain
+
+        t = Tactic(
+            't',
+            [
+                Step('eval', ['?a@*'], '?0'),
+                Step('rewrite', ['?0', '?a', '0'], '?1'),
+                Step('eval', ['?1@*'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        d = domain.make_domain('subst-eval')
+        problem = d.start_derivation('(= x (+ (+ 1 2) 3))', '(= x ?)')
+
+        traces = t.execute(problem.universe, d)
+
+        # This tactic should produce only one result here.
+        assert len(traces) == 1
+        # And its last definition should be a proof that (= x 6).
+        assert (traces[0].definitions[-1][1]
+                .clean_dtype(traces[0].universe) == '(= x 6)')
 
     def test_tactic_beam_search(self):
         import domain
