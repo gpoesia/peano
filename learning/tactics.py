@@ -401,6 +401,22 @@ class Tactic:
 
         return e
 
+    def is_potential_loop(self) -> bool:
+        '''Returns True if this tactic could be generalized into a loop.
+
+        This employs a trivial loop detection heuristic:
+        a loop is detected once we create a tactic for what could be the second iteration,
+        assuming one full iteration has already been subsumed into a single tactic.
+        '''
+        return (len(self.steps) == 2 and  # Two iterations with the same arrow.
+                self.steps[0].arrow == self.steps[1].arrow and
+                # First iteration takes a parameter.
+                len(self.steps[0].arguments) == 1 and
+                # Second iteration takes the previous iteration's result.
+                is_parameter_name(self.steps[0].arguments[0]) and
+                self.steps[1].arguments[0] == self.steps[0].result)
+
+
 
 def rewrite_episode_using_tactics(episode: Episode, d: 'Domain',
                                   tactics: list[Tactic]) -> Episode:
@@ -723,6 +739,32 @@ class TacticsTest(unittest.TestCase):
         # And its last definition should be a proof that (= x 6).
         assert (traces[0].definitions[-1][1]
                 .clean_dtype(traces[0].universe) == '(= x 6)')
+
+    def test_loop_detection(self):
+        assert Tactic(
+            't2',
+            [
+                Step('t1', ['?a'], '?0'),
+                Step('t1', ['?0'], '?1'),
+            ]
+        ).is_potential_loop()
+
+        assert not Tactic(
+            't2',
+            [
+                Step('t1', ['?a'], '?0'),
+                Step('t4', ['?0'], '?1'),
+            ]
+        ).is_potential_loop()
+
+        assert not Tactic(
+            't2',
+            [
+                Step('t1', ['?a'], '?0'),
+                Step('t1', ['?b'], '?1'),
+            ]
+        ).is_potential_loop()
+
 
     def test_tactic_beam_search(self):
         import domain
