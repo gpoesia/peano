@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import unittest
 import pickle
 from functools import cached_property
+import itertools
 import random
 
 import hydra
@@ -60,11 +61,14 @@ class Step:
     arrow: str
     arguments: tuple[str]
     result: str
+    loop: bool
 
-    def __init__(self, arrow: str, arguments: list[str], result: str):
+    def __init__(self, arrow: str, arguments: list[str], result: str,
+                 loop: bool = False):
         object.__setattr__(self, 'arrow', arrow)
         object.__setattr__(self, 'arguments', tuple(arguments))
         object.__setattr__(self, 'result', result)
+        object.__setattr__(self, 'loop', loop)
 
     def rewrite(self, before: str, after: str):
         'Replace all occurrences of an argument by another.'
@@ -73,7 +77,16 @@ class Step:
                     after if self.result == before else self.result)
 
     def __str__(self):
-        return f'{self.result} <- {self.arrow} {", ".join(self.arguments)}'
+        c = '*' if self.loop else ''
+        return f'{self.result} <-{c} {self.arrow} {", ".join(self.arguments)}'
+
+    def make_loop(self) -> 'Step':
+        return Step(
+            arrow=self.arrow,
+            arguments=self.arguments,
+            result=self.result,
+            loop=True
+        )
 
 
 @dataclass
@@ -288,50 +301,79 @@ class Tactic:
 
     def execute(self, u: peano.PyUniverse, d: 'Domain', toplevel = True, scope: list[str] = []) -> list[Trace]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
+        r = self._run_trace(Trace({}, u, []), d, 0, None, toplevel, scope)
 
-        traces = [Trace({}, u, [])]
+        if toplevel:
+            # Deduplicate results.
+            seen_before = set()
+            unique = []
+            for t in r:
+                val = d.value_of(t.universe, t)
+                if val in seen_before:
+                    continue
+                seen_before.add(val)
+                unique.append(t)
+            r = unique
 
-        for s in self.steps:
-            new_traces = []
+        return r
 
-            for trace in traces:
-                # 1- Execute the step.
-                # NOTE: apply is fully non-deterministic. We should replace this with a new
-                # API for specifying all known parameters, and only being non-deterministic on the holes.
-                new_defs = d.apply(s.arrow, trace.universe, False,
-                                   (scope or []) + [v
-                                                    for k, v in trace.assignments.items()
-                                                    if is_result_name(k)])
-                # 2- For each valid result, make a new trace.
-                for definition in new_defs:
-                    args = definition.generating_arguments()
+    def _run_trace(self, t: Trace, d: 'Domain', pc: int, last_result: str,
+                    toplevel = True, scope: list[str] = []) -> list[Trace]:
 
-                    new_assignments = self._unify_args(args, s.arguments, trace)
+        # Base case: tactic is over.
+        if pc == len(self.steps):
+            return [t]
 
-                    if new_assignments is not None:
-                        u = trace.universe.clone()
+        # Steps the trace by one step, and returns
+        s = self.steps[pc]
 
-                        if isinstance(definition, Trace):
-                            subdef_name = definition.return_name()
-                        else:
-                            subdef_name = f'!tac{u.next_id()}'
+        new_traces = []
 
-                        d.define(u, subdef_name, definition)
+        # 1- Execute the step.
+        # NOTE: apply is fully non-deterministic. We should replace this with a new
+        # API for specifying all known parameters, and only being non-deterministic on the holes.
+        new_defs = d.apply(s.arrow, t.universe, False,
+                           (scope or []) + [v
+                                            for k, v in t.assignments.items()
+                                            if is_result_name(k)])
 
-                        new_assignments[s.result] = subdef_name
-                        new_traces.append(Trace(
-                            new_assignments,
-                            u,
-                            trace.definitions + [(subdef_name, definition)]))
+        # 2- For each valid result, make a new trace.
+        for definition in new_defs:
+            args = definition.generating_arguments()
 
-            traces = new_traces
+            new_assignments = self._unify_args(args, s.arguments, t)
 
-        return traces
+            if new_assignments is not None:
+                u = t.universe.clone()
+
+                if isinstance(definition, Trace):
+                    subdef_name = definition.return_name()
+                else:
+                    subdef_name = f'!tac{u.next_id()}'
+
+                d.define(u, subdef_name, definition)
+
+                result_name = s.result if not s.loop else f'{s.result}.{len(t.definitions)}'
+                new_assignments['?^'] = new_assignments[result_name] = subdef_name
+                nt = Trace(new_assignments, u, t.definitions + [(subdef_name, definition)])
+
+                if not s.loop:
+                    new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
+                else:
+                    # Try repeating this step as much as possible.
+                    ts = self._run_trace(nt, d, pc, s.result, toplevel, scope + [subdef_name])
+                    if ts:
+                        new_traces.extend(ts)
+                    else:
+                        # Can't iterate anymore. Go to the next step.
+                        new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
+
+        return new_traces
 
     def _unify_args(self,
                     concrete_args: list[str],
                     abstract_args: list[str],
-                    trace: list[dict]) -> Optional[dict]:
+                    trace: Trace) -> Optional[dict]:
 
         assignments = trace.assignments.copy()
 
@@ -416,6 +458,13 @@ class Tactic:
                 is_parameter_name(self.steps[0].arguments[0]) and
                 self.steps[1].arguments[0] == self.steps[0].result)
 
+    def make_loop(self) -> 'Tactic':
+        assert self.is_potential_loop()
+
+        return Tactic(
+            name=f'{self.name}*',
+            steps=(self.steps[:-1] + (self.steps[-1].make_loop(),))
+        )
 
 
 def rewrite_episode_using_tactics(episode: Episode, d: 'Domain',
@@ -715,6 +764,33 @@ class TacticsTest(unittest.TestCase):
         assert episode.actions[0] == 't2'
 
         episode.recover_arguments(d)
+
+    def test_loop_tactic_execution(self):
+        import domain
+        import policy
+
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['?a@*'], '?0'),
+                Step('rewrite', ['?0', '?a', '0'], '?1'),
+            ]
+        )
+
+        t2 = Tactic(
+            't2',
+            [
+                Step('t1', ['?a'], '?0'),
+                Step('t1', ['?^'], '?1', True),
+            ]
+        )
+
+        d = domain.make_domain('subst-eval', [t1, t2])
+        problem = d.start_derivation('(= x (* (+ 1 1) (- (- (+ 5 (+ (+ 1 2) 3)) 3) 5)))', '(= x ?)')
+
+        traces = t2.execute(problem.universe, d)
+
+        self.assertEqual(d.value_of(traces[0].universe, traces[0]), '(= x 6)')
 
     def test_execution_with_locations(self):
         import domain
