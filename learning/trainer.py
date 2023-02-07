@@ -76,6 +76,7 @@ class TrainerAgent:
         self.search_budget_multiplier = config.get('search_budget_multiplier', 10)
         self.adjust_search_budget_threshold = config.get('adjust_search_budget_threshold', 0.0)
         self.eval_domains = config.eval_domains
+        self.accumulate = config.accumulate
         self.epsilon = config.epsilon
         self.config = config
         self.searcher_futures = []
@@ -226,10 +227,13 @@ class TrainerAgent:
 
                         episodes.extend(result_i.episodes)
 
+                    # Index of the first episode to use for training.
+                    start_index = (0 if self.accumulate else existing_episodes)
+
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
                         for _ in range(self.config.n_tactics):
-                            proposals = induce_tactics(episodes, # [existing_episodes:],
+                            proposals = induce_tactics(episodes[start_index:],
                                                        self.config.n_tactics,
                                                        self.config.min_tactic_score,
                                                        tactics,
@@ -258,7 +262,7 @@ class TrainerAgent:
                     self.searcher_futures = []
 
                     with open(f'episodes-{it}.pkl', 'wb') as f:
-                        pickle.dump(episodes, f)
+                        pickle.dump(episodes[start_index:], f)
 
                     with open(f'tactics-{it}.pkl', 'wb') as f:
                         pickle.dump(tactics, f)
@@ -289,8 +293,9 @@ class TrainerAgent:
 
                 # Fit model and update checkpoint.
                 logger.info('Training model on %d episodes (%d successful)',
-                            len(episodes), sum(1 for e in episodes if e.success))
-                m.fit(episodes)
+                            len(episodes) - start_index,
+                            sum(1 for e in episodes[start_index:] if e.success))
+                m.fit(episodes[start_index:])
                 last_checkpoint = os.path.join(os.getcwd(), f'{it}.pt')
 
                 torch.save(m, last_checkpoint)
