@@ -133,12 +133,23 @@ class Tactic:
     def __str__(self):
         return f'{self.name}:\n' + '\n'.join(map(str, self.steps))
 
+    def to_compact_str(self):
+        return f'{self.name}: ' + '; '.join(map(str, self.steps))
+
     @staticmethod
     def from_str(s):
         'Inverse of __str__'
         lines = s.split('\n')
         name = lines[0].rstrip(':')
         steps = list(map(Step.from_str, lines[1:]))
+        return Tactic(name, steps)
+
+    @staticmethod
+    def from_compact_str(s):
+        'Inverse of to_compact_str'
+        name, lines = s.split(': ')
+        name = name.strip()
+        steps = list(map(Step.from_str, lines.split('; ')))
         return Tactic(name, steps)
 
     def __hash__(self):
@@ -831,6 +842,7 @@ class TacticsTest(unittest.TestCase):
         )
 
         assert str(Tactic.from_str(str(t1))) == str(t1)
+        assert Tactic.from_compact_str(t1.to_compact_str()).to_compact_str() == t1.to_compact_str()
 
         t2 = Tactic(
             't2',
@@ -841,6 +853,7 @@ class TacticsTest(unittest.TestCase):
         )
 
         assert str(Tactic.from_str(str(t2))) == str(t2)
+        assert Tactic.from_compact_str(t2.to_compact_str()).to_compact_str() == t2.to_compact_str()
 
         t3 = Tactic(
             't3',
@@ -853,6 +866,7 @@ class TacticsTest(unittest.TestCase):
         )
 
         assert str(Tactic.from_str(str(t3))) == str(t3)
+        assert Tactic.from_compact_str(t3.to_compact_str()).to_compact_str() == t3.to_compact_str()
 
     def test_execution_with_locations(self):
         import domain
