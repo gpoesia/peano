@@ -582,6 +582,7 @@ DOMAINS = {
 
 
 def make_domain(name, tactics=[]):
+    name = name.strip()
     # Example syntax: mix(equations, comb-like, simpl0)
     if name.startswith('mix(') and name.endswith(')'):
         names = list(name[len('mix('):-1].split(','))
@@ -600,7 +601,7 @@ def make_domain(name, tactics=[]):
         path = name[len('load('):-1]
         d = PrecomputedProblemSet(path)
     else:
-        d = DOMAINS[name.strip()]()
+        d = DOMAINS[name]()
 
     d.load_tactics(tactics)
 
