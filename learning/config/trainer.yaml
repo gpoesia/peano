@@ -32,6 +32,7 @@ trainer:
     algorithm: 'policy-beam-search'
 
     induce_tactics: true
+    induce_loops: true
     n_tactics: 5
     min_tactic_score: 30
 

@@ -232,7 +232,8 @@ class TrainerAgent:
                             proposals = induce_tactics(episodes, # [existing_episodes:],
                                                        self.config.n_tactics,
                                                        self.config.min_tactic_score,
-                                                       tactics)
+                                                       tactics,
+                                                       self.config.get('induce_loops'))
                             if proposals:
                                 # Take the top proposal, incorporate it and repeat.
                                 new_tactic = (proposals[0]

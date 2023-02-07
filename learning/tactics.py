@@ -488,7 +488,8 @@ def rewrite_episode_using_tactics(episode: Episode, d: 'Domain',
 MAX_SLICES = 10**4
 
 def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
-                   filter_comparable_to: list[Tactic] = []):
+                   filter_comparable_to: list[Tactic] = [],
+                   induce_loops: bool = False):
     episodes = [e for e in episodes if e.success]
     tactics_from_slices = []
 
@@ -534,6 +535,13 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
         for s in tactics_from_slices:
             if t.is_generalization_of(s)[0]:
                 occurrences += 1
+
+        # If it's a loop and we're inducing loops, make t a loop.
+        # NOTE: this could be done earlier if we make is_generalization_of able
+        # to recognize unrolled loops, but right now it doesn't.
+        if induce_loops and t.is_potential_loop():
+            t = t.make_loop()
+
         scored_lggs.append((t, occurrences))
 
     scored_lggs.sort(key=(lambda ts:
