@@ -501,7 +501,7 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
                 t = Tactic.from_solution_slice(f't_{i}_{start}_{length}', start,
                                                arrows[start:start+length],
                                                arguments[start:start+length],
-                                               False)
+                                               True)
                 if t.is_connected():
                     tactics_from_slices.append(t)
 
