@@ -80,6 +80,18 @@ class Step:
         c = '*' if self.loop else ''
         return f'{self.result} <-{c} {self.arrow} {", ".join(self.arguments)}'
 
+    @staticmethod
+    def from_str(s):
+        'Parses a step (inverse of __str__)'
+        s = s.replace(',', '')
+        pieces = s.split()
+        result = pieces[0]
+        loop = pieces[1].endswith('*')
+        arrow = pieces[2]
+        arguments = pieces[3:]
+        return Step(arrow, arguments, result, loop)
+
+
     def make_loop(self) -> 'Step':
         return Step(
             arrow=self.arrow,
@@ -120,6 +132,14 @@ class Tactic:
 
     def __str__(self):
         return f'{self.name}:\n' + '\n'.join(map(str, self.steps))
+
+    @staticmethod
+    def from_str(s):
+        'Inverse of __str__'
+        lines = s.split('\n')
+        name = lines[0].rstrip(':')
+        steps = list(map(Step.from_str, lines[1:]))
+        return Tactic(name, steps)
 
     def __hash__(self):
         return hash(self.steps)
@@ -799,6 +819,40 @@ class TacticsTest(unittest.TestCase):
         traces = t2.execute(problem.universe, d)
 
         self.assertEqual(d.value_of(traces[0].universe, traces[0]), '(= x 6)')
+
+
+    def test_parse_tactics(self):
+        t1 = Tactic(
+            't1',
+            [
+                Step('eval', ['?a@*'], '?0'),
+                Step('rewrite', ['?0', '?a', '0'], '?1'),
+            ]
+        )
+
+        assert str(Tactic.from_str(str(t1))) == str(t1)
+
+        t2 = Tactic(
+            't2',
+            [
+                Step('t1', ['?a'], '?0'),
+                Step('t1', ['?^'], '?1', True),
+            ]
+        )
+
+        assert str(Tactic.from_str(str(t2))) == str(t2)
+
+        t3 = Tactic(
+            't3',
+            [
+                Step('eval', ['?a@*'], '?0'),
+                Step('rewrite', ['?0', '?a', '0'], '?1'),
+                Step('eval', ['?1@*'], '?2'),
+                Step('rewrite', ['?2', '?1', '0'], '?3'),
+            ]
+        )
+
+        assert str(Tactic.from_str(str(t3))) == str(t3)
 
     def test_execution_with_locations(self):
         import domain
