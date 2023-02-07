@@ -43,7 +43,7 @@ def generalize_locations(name: str, l1: list[str], l2: list[str]) -> str:
         return name
 
     if l1 == l2:
-        return f'{name}@{l1.join("@")}'
+        return f'{name}@{"@".join(l1)}'
 
     return f'{name}@*'
 

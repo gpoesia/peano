@@ -1,0 +1,54 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+
+  "facet": { 
+      "field": "Domain", 
+      "type": "nominal",
+      "header": { "labelFontSize": 65, "labelPadding": 85 },
+      "sort": { "field": "domain_order" }
+  },
+  "columns": 3,
+  "spec": {
+      "width": 900,
+      "height": 900,
+
+      "encoding": {
+          "x": {
+              "field": "Iteration",
+              "type": "quantitative",
+              "axis": { "tickCount": 5, "titleFontSize": 60, "labelFontSize": 45 }
+          },
+          "color": {"field": "Agent", "type": "nominal",
+              "legend": {
+                  "titleFontSize": 60, 
+                  "titleLimit": 2000,
+                  "labelFontSize": 40, 
+                  "labelLimit": 2000,
+                  "symbolSize": 200,
+                  "orient": "none",
+                  "legendX": 1850,
+                  "legendY": 1250,
+                  "symbolStrokeWidth": 80 },
+                  "scale": {"scheme": "set1"}, "sort": null 
+          }
+      },
+
+      "layer": [
+          {
+              "mark": "line",
+              "encoding": { 
+                  "y": {"field": "Success Rate", "type": "quantitative",
+                      "aggregate": "mean",
+                      "axis": { "tickCount": 5, "titleFontSize": 50, "labelFontSize": 45 } 
+                  }
+              }
+          },
+          {
+              "mark": { "type": "errorband", "extent": "stderr" },
+              "encoding": { 
+                  "y": {"field": "Success Rate", "type": "quantitative" }
+              }
+          }
+      ]
+  }
+}
