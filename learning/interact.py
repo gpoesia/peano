@@ -5,6 +5,7 @@
 import argparse
 import logging
 import pickle
+import itertools
 
 import torch
 from tqdm import tqdm
@@ -17,6 +18,7 @@ from domain import EquationsDomain, make_domain
 from policy import encode_batch, decode_batch, EOS, Episode as PolicyEpisode, RandomPolicy
 from search import batched_forward_search, ProofSearchEpisode
 from solution import Solution
+from tactics import Tactic
 
 
 def _input_problem(domain, derivation=True):
@@ -109,7 +111,21 @@ def interact_with_environment(domain):
         i += 1
 
     print('Solved in', i, 'steps!')
-    print('Solution:\n', sol.format(2000))
+
+    episode = PolicyEpisode(problem=p.description,
+                            goal=p.goal,
+                            domain=p.domain_name,
+                            success=True,
+                            actions=list(itertools.chain.from_iterable(
+                                zip([a[0] for a in sol.actions],
+                                    sol.results))))
+
+    episode.recover_arguments(domain)
+
+    print('Solution:\n',
+          Tactic.from_solution_slice('interactive', 0,
+                                     episode.actions[::2],
+                                     episode.arguments[1::2]).to_compact_str())
     print('Probability of this trajectory for a random policy:', prob)
 
 

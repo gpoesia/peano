@@ -13,7 +13,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
-# from transformers import ReformerModelWithLMHead, ReformerConfig, GPT2Config, GPT2LMHeadModel
 import wandb
 from tqdm import tqdm
 import numpy as np
