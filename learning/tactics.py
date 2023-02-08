@@ -38,6 +38,14 @@ def split_location(name: str) -> (str, list[str]):
     name, *loc = name.split('@')
     return name, loc
 
+def rewrite_name(name: str, rewrites: dict[str, str]):
+    name, loc = split_location(name)
+    name = rewrites.get(name, name)
+    if loc:
+        return f'{name}@{"@".join(loc)}'
+    else:
+        return name
+
 def generalize_locations(name: str, l1: list[str], l2: list[str]) -> str:
     if not (l1 or l2):
         return name
@@ -188,7 +196,6 @@ class Tactic:
 
         return len(steps_used) == len(self.steps)
 
-
     @staticmethod
     def from_solution_slice(name: str,
                             start_index: int,
@@ -205,7 +212,8 @@ class Tactic:
                                            if args is not None]):
             result = f'?{i}'
             rewrites[f'!step{start_index + i}'] = result
-            steps.append(Step(arrow, [rewrites.get(a, a) for a in args], result))
+
+            steps.append(Step(arrow, [rewrite_name(a, rewrites) for a in args], result))
 
         t = Tactic(name, steps)
         return t.abstract_concrete_arguments() if abstract_constants else t
@@ -323,7 +331,7 @@ class Tactic:
                     new_args.append(generalize_location_expression(parameter_values[a], loc))
                 else:
                     new_param_name = next_parameter_name(len(parameter_values))
-                    parameter_values[new_param_name] = a
+                    parameter_values[a] = new_param_name
                     new_args.append(generalize_location_expression(new_param_name, loc))
 
             new_steps.append(Step(s.arrow, new_args, s.result))
@@ -696,43 +704,21 @@ class TacticsTest(unittest.TestCase):
         assert t1.is_generalization_of(t1)[0]
         assert t2.is_generalization_of(t2)[0]
 
+    def test_abstract_arguments_with_locations(self):
 
-    def test_generalize_tactic(self):
-        t1 = Tactic(
-            't1',
-            [
-                Step('eval', ['!sub1'], '?0'),
-                Step('rewrite', ['?0', '!sub2', '0'], '?1'),
-                Step('eval', ['!sub48'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
-            ]
+        t = Tactic.from_solution_slice(
+            'test',
+            0,
+            arrows=['+s', 'rewrite', '+s', 'rewrite', '+zl', 'rewrite'],
+            arguments=[['eq@type@2'], ['!step0', 'eq', '0'],
+                       ['!step0@type@2@1'], ['!step2', '!step1', '0'],
+                       ['!step2@type@2@1'], ['!step4', '!step3', '0']],
+            abstract_constants=True
         )
 
-        t2 = Tactic(
-            't1',
-            [
-                Step('eval', ['!sub19'], '?0'),
-                Step('rewrite', ['?0', '!sub42', '0'], '?1'),
-                Step('eval', ['!sub25'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
-            ]
-        )
-
-        lgg = t1.generalize(t2, 't1+t2')
-
-        assert lgg is not None
-        assert lgg.is_generalization_of(t1)[0]
-        assert lgg.is_generalization_of(t2)[0]
-        assert lgg.is_generalization_of(lgg)[0]
-
-        assert not t1.is_generalization_of(lgg)[0]
-        assert not t2.is_generalization_of(lgg)[0]
-
-        assert not t1.is_generalization_of(t2)[0]
-        assert not t2.is_generalization_of(t1)[0]
-
-        assert t1.is_generalization_of(t1)[0]
-        assert t2.is_generalization_of(t2)[0]
+        # The only parameter should be the original 'eq'!
+        # (and for now the location 0 as the last argument to rewrite, but I'll fix this now)
+        self.assertEqual(t.number_of_parameters, 2)
 
     def test_generalize_locations(self):
         t1 = Tactic(

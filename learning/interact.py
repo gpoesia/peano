@@ -126,6 +126,7 @@ def interact_with_environment(domain):
           Tactic.from_solution_slice('interactive', 0,
                                      episode.actions[::2],
                                      episode.arguments[1::2]).to_compact_str())
+    print('Arguments:', episode.arguments[1::2])
     print('Probability of this trajectory for a random policy:', prob)
 
 
