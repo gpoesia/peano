@@ -710,15 +710,14 @@ class TacticsTest(unittest.TestCase):
             'test',
             0,
             arrows=['+s', 'rewrite', '+s', 'rewrite', '+zl', 'rewrite'],
-            arguments=[['eq@type@2'], ['!step0', 'eq', '0'],
-                       ['!step0@type@2@1'], ['!step2', '!step1', '0'],
-                       ['!step2@type@2@1'], ['!step4', '!step3', '0']],
+            arguments=[['eq@type@2'], ['!step0', 'eq@type@2'],
+                       ['!step0@type@2@1'], ['!step2', '!step1@type@2@1'],
+                       ['!step2@type@2@1'], ['!step4', '!step3@type@2@1@1']],
             abstract_constants=True
         )
 
         # The only parameter should be the original 'eq'!
-        # (and for now the location 0 as the last argument to rewrite, but I'll fix this now)
-        self.assertEqual(t.number_of_parameters, 2)
+        self.assertEqual(t.number_of_parameters, 1)
 
     def test_generalize_locations(self):
         t1 = Tactic(

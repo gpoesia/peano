@@ -5,6 +5,7 @@ use std::collections::hash_map::HashMap;
 use std::io;
 use std::path::Path;
 use std::iter::once;
+use std::ops::Add;
 
 use num_rational::Rational64;
 
@@ -422,7 +423,7 @@ impl Derivation {
                   t2: &Rc<Term>,
                   eq_name: &String,
                   new_terms: &mut Vec<Definition>) {
-        for (i, rw) in rewrite_all(&prop_type, &t1, &t2).into_iter().enumerate() {
+        for (rw, loc) in rewrite_all(&prop_type, &t1, &t2, String::new()).into_iter() {
             new_terms.push(
                 Definition {
                     dtype: rw,
@@ -430,8 +431,7 @@ impl Derivation {
                         function: Rc::new(Term::Atom { name: String::from("rewrite") }),
                         arguments: vec![
                             Rc::new(Term::Atom { name: eq_name.clone() }),
-                            Rc::new(Term::Atom { name: prop_name.clone() }),
-                            Rc::new(Term::Atom { name: i.to_string() }),
+                            Rc::new(Term::Atom { name: format!("{}@type{}", prop_name, loc) }),
                         ],
                     }))
                 }
@@ -696,32 +696,35 @@ fn apply_builtin_binary_op(n1: Rational64, n2: Rational64, op: &str) -> Option<R
 // NOTE: This is a potentially conservative rewrite since we don't want to introduce occurrences
 // of bound variables, so here we don't recurse into arrows or lambdas. This is not limiting for
 // now, but something to think about for the future.
-fn rewrite_all(term: &Rc<Term>, source: &Rc<Term>, target: &Rc<Term>) -> Vec<Rc<Term>> {
+fn rewrite_all(term: &Rc<Term>, source: &Rc<Term>, target: &Rc<Term>,
+               location: String) -> Vec<(Rc<Term>, String)> {
     let mut results = Vec::new();
 
     if term == source {
-        results.push(target.clone());
+        results.push((target.clone(), location));
+        return results;
     }
 
     match term.as_ref() {
         Term::Application { function, arguments } => {
-            for alt in rewrite_all(function, source, target).into_iter() {
-                results.push(Rc::new(Term::Application {
+            for (alt, loc) in rewrite_all(function, source, target, format!("{}@0", location)).into_iter() {
+                results.push((Rc::new(Term::Application {
                     function: alt,
                     arguments: arguments.clone(),
-                }));
+                }), loc));
             }
 
             for i in 0..arguments.len() {
-                for alt in rewrite_all(&arguments[i], source, target).iter() {
-                    results.push(Rc::new(Term::Application {
+                for (alt, loc) in rewrite_all(&arguments[i], source, target,
+                                              format!("{}@{}", location, i+1)).into_iter() {
+                    results.push((Rc::new(Term::Application {
                         function: function.clone(),
                         arguments: arguments[..i].iter()
-                                                 .chain(once(alt))
+                                                 .chain(once(&alt))
                                                  .chain(arguments[i+1..].iter())
                                                  .map(|t| t.clone())
                                                  .collect()
-                    }));
+                    }), loc));
                 }
             }
         },
