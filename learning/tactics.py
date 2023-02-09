@@ -67,44 +67,49 @@ def is_location_generalization_of(l1: list[str], l2: list[str]) -> bool:
 @dataclass(eq=True, frozen=True)
 class Step:
     'Represents one step in a tactic.'
-    arrow: str
+    arrows: list[str]
     arguments: tuple[str]
     result: str
     branch: Optional[int]
 
-    def __init__(self, arrow: str, arguments: list[str], result: str,
+    def __init__(self, arrows: list[str], arguments: list[str], result: str,
                  branch: Optional[int] = None):
-        object.__setattr__(self, 'arrow', arrow)
+        object.__setattr__(self, 'arrows', arrows)
         object.__setattr__(self, 'arguments', tuple(arguments))
         object.__setattr__(self, 'result', result)
         object.__setattr__(self, 'branch', branch)
 
     def rewrite(self, before: str, after: str):
         'Replace all occurrences of an argument by another.'
-        return Step(self.arrow,
+        return Step(self.arrows,
                     [after if x == before else x for x in self.arguments],
                     after if self.result == before else self.result)
 
     def __str__(self):
-        c = '*' if self.branch else ''
-        return f'{self.result} <-{c} {self.arrow} {", ".join(self.arguments)}'
+        c = f' ~~> {self.branch}' if self.branch is not None else ''
+        arrows = self.arrows[0] if len(self.arrows) == 1 else f'({"|".join(self.arrows)})'
+        return f'{self.result} <- {arrows} {", ".join(self.arguments)}{c}'
 
     @staticmethod
     def from_str(s):
         'Parses a step (inverse of __str__)'
         s = s.replace(',', '')
+
+        if '~~>' in s:
+            s, branch = s.split('~~>')
+            branch = int(branch)
+        else:
+            branch = None
+
         pieces = s.split()
         result = pieces[0]
-        branch = pieces[1].endswith('*')
-        assert not branch, 'from_str/to_str not fixed to work with branches yet.'
-        arrow = pieces[2]
+        arrows = pieces[2][1:-1].split('|') if pieces[2].startswith('(') else [pieces[2]]
         arguments = pieces[3:]
-        return Step(arrow, arguments, result, None)
-
+        return Step(arrows, arguments, result, branch)
 
     def make_branch(self, branch: int) -> 'Step':
         return Step(
-            arrow=self.arrow,
+            arrows=self.arrows,
             arguments=self.arguments,
             result=self.result,
             branch=branch,
@@ -215,7 +220,7 @@ class Tactic:
             result = f'?{i}'
             rewrites[f'!step{start_index + i}'] = result
 
-            steps.append(Step(arrow, [rewrite_name(a, rewrites) for a in args], result))
+            steps.append(Step([arrow], [rewrite_name(a, rewrites) for a in args], result))
 
         t = Tactic(name, steps)
         return t.abstract_concrete_arguments() if abstract_constants else t
@@ -237,7 +242,7 @@ class Tactic:
         assignment = {}
 
         for s1, s2 in zip(self.steps, rhs.steps):
-            if s1.arrow != s2.arrow:
+            if not set(s1.arrows).issubset(s2.arrows):
                 return False, None
 
             for arg1, arg2 in zip(s1.arguments, s2.arguments):
@@ -271,7 +276,10 @@ class Tactic:
         lgg_steps = []
 
         for s1, s2 in zip(self.steps, t.steps):
-            if s1.arrow != s2.arrow:
+            # NOTE: This is here from when each step had a single arrow, but not that
+            # a step has a set of arrows it can take, we could generalize this and learn
+            # higher-order tactics quite easily.
+            if s1.arrows != s2.arrows:
                 return None
 
             assert s1.result == s2.result, \
@@ -304,7 +312,7 @@ class Tactic:
                     params_to_lgg[(a1, a2)] = name
                     unified_args.append(generalize_locations(name, l1, l2))
 
-            lgg_steps.append(Step(s1.arrow, unified_args, s1.result))
+            lgg_steps.append(Step(s1.arrows, unified_args, s1.result))
 
         return Tactic(lgg_name, lgg_steps)
 
@@ -336,7 +344,7 @@ class Tactic:
                     parameter_values[a] = new_param_name
                     new_args.append(generalize_location_expression(new_param_name, loc))
 
-            new_steps.append(Step(s.arrow, new_args, s.result))
+            new_steps.append(Step(s.arrows, new_args, s.result))
 
         return Tactic(self.name, new_steps)
 
@@ -373,41 +381,50 @@ class Tactic:
         # 1- Execute the step.
         # NOTE: apply is fully non-deterministic. We should replace this with a new
         # API for specifying all known parameters, and only being non-deterministic on the holes.
-        new_defs = d.apply(s.arrow, t.universe, False,
-                           (scope or []) + [v
-                                            for k, v in t.assignments.items()
-                                            if is_result_name(k)])
+        for a in s.arrows:
+            new_defs = d.apply(a, t.universe, False,
+                            (scope or []) + [v
+                                                for k, v in t.assignments.items()
+                                                if is_result_name(k)])
 
-        # 2- For each valid result, make a new trace.
-        for definition in new_defs:
-            args = definition.generating_arguments()
+            # 2- For each valid result, make a new trace.
+            for definition in new_defs:
+                args = definition.generating_arguments()
 
-            new_assignments = self._unify_args(args, s.arguments, t)
+                new_assignments = self._unify_args(args, s.arguments, t)
 
-            if new_assignments is not None:
-                u = t.universe.clone()
+                if new_assignments is not None:
+                    u = t.universe.clone()
 
-                if isinstance(definition, Trace):
-                    subdef_name = definition.return_name()
-                else:
-                    subdef_name = f'!tac{u.next_id()}'
-
-                d.define(u, subdef_name, definition)
-
-                result_name = s.result if s.branch is None else f'{s.result}.{len(t.definitions)}'
-                new_assignments['?^'] = new_assignments[result_name] = subdef_name
-                nt = Trace(new_assignments, u, t.definitions + [(subdef_name, definition)])
-
-                if s.branch is None:
-                    new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
-                else:
-                    # Try repeating this step as much as possible.
-                    ts = self._run_trace(nt, d, s.branch, s.result, toplevel, scope + [subdef_name])
-                    if ts:
-                        new_traces.extend(ts)
+                    if isinstance(definition, Trace):
+                        subdef_name = definition.return_name()
                     else:
-                        # Can't iterate anymore. Go to the next step.
+                        subdef_name = f'!tac{u.next_id()}'
+
+                    d.define(u, subdef_name, definition)
+
+                    result_name = s.result if s.branch is None else f'{s.result}.{len(t.definitions)}'
+                    new_assignments['?^'] = new_assignments[result_name] = subdef_name
+                    nt = Trace(new_assignments, u, t.definitions + [(subdef_name, definition)])
+
+                    if s.branch is None:
                         new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
+                    else:
+                        # Try repeating this step as much as possible.
+                        ts = self._run_trace(nt, d, s.branch, s.result, toplevel, scope + [subdef_name])
+                        if ts:
+                            new_traces.extend(ts)
+                        else:
+                            # Can't iterate anymore. Go to the next step.
+                            new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
+
+            # If arrow a produces any new traces, then use it greedily.
+            # Otherwise, keep trying other arrows if there are any.
+            # Note that this won't backtrack lower-level arrows if a
+            # higher-level one fails to produce any new traces. This
+            # is by design to ensure tactics execute fast.
+            if new_traces:
+                break
 
         return new_traces
 
@@ -492,7 +509,7 @@ class Tactic:
         assuming one full iteration has already been subsumed into a single tactic.
         '''
         return (len(self.steps) == 2 and  # Two iterations with the same arrow.
-                self.steps[0].arrow == self.steps[1].arrow and
+                self.steps[0].arrows == self.steps[1].arrows and
                 # First iteration takes a parameter.
                 len(self.steps[0].arguments) == 1 and
                 # Second iteration takes the previous iteration's result.
@@ -651,10 +668,10 @@ class TacticsTest(unittest.TestCase):
         tactic = Tactic(
             'eval_rewrite_x2',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
-                Step('eval', ['?c'], '?2'),
-                Step('rewrite', ['?2', '?1'], '?3'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['eval'], ['?c'], '?2'),
+                Step(['rewrite'], ['?2', '?1'], '?3'),
             ]
         )
 
@@ -673,20 +690,20 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['!sub1'], '?0'),
-                Step('rewrite', ['?0', '!sub2', '0'], '?1'),
-                Step('eval', ['!sub48'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['!sub1'], '?0'),
+                Step(['rewrite'], ['?0', '!sub2', '0'], '?1'),
+                Step(['eval'], ['!sub48'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
         t2 = Tactic(
             't1',
             [
-                Step('eval', ['!sub19'], '?0'),
-                Step('rewrite', ['?0', '!sub42', '0'], '?1'),
-                Step('eval', ['!sub25'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['!sub19'], '?0'),
+                Step(['rewrite'], ['?0', '!sub42', '0'], '?1'),
+                Step(['eval'], ['!sub25'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
@@ -725,20 +742,20 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['eq@type@0'], '?0'),
-                Step('rewrite', ['?0', 'eq', '0'], '?1'),
-                Step('eval', ['?1@type@1'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['eq@type@0'], '?0'),
+                Step(['rewrite'], ['?0', 'eq', '0'], '?1'),
+                Step(['eval'], ['?1@type@1'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
         t2 = Tactic(
             't2',
             [
-                Step('eval', ['!tac2@type@1'], '?0'),
-                Step('rewrite', ['?0', '!tac2', '0'], '?1'),
-                Step('eval', ['?1@type@0'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['!tac2@type@1'], '?0'),
+                Step(['rewrite'], ['?0', '!tac2', '0'], '?1'),
+                Step(['eval'], ['?1@type@0'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
@@ -767,16 +784,16 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
             ]
         )
 
         t2 = Tactic(
             't2',
             [
-                Step('t1', ['?a', '?b'], '?0'),
-                Step('t1', ['?c', '?0'], '?1'),
+                Step(['t1'], ['?a', '?b'], '?0'),
+                Step(['t1'], ['?c', '?0'], '?1'),
             ]
         )
 
@@ -798,16 +815,16 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['?a@*'], '?0'),
-                Step('rewrite', ['?0', '?a', '0'], '?1'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
             ]
         )
 
         t2 = Tactic(
             't2',
             [
-                Step('t1', ['?a'], '?0'),
-                Step('t1', ['?^'], '?1', 1),
+                Step(['t1'], ['?a'], '?0'),
+                Step(['t1'], ['?^'], '?1', 1),
             ]
         )
 
@@ -823,8 +840,8 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['?a@*'], '?0'),
-                Step('rewrite', ['?0', '?a', '0'], '?1'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
             ]
         )
 
@@ -834,8 +851,8 @@ class TacticsTest(unittest.TestCase):
         t2 = Tactic(
             't2',
             [
-                Step('t1', ['?a'], '?0'),
-                Step('t1', ['?^'], '?1', True),
+                Step(['t1'], ['?a'], '?0'),
+                Step(['t1'], ['?^'], '?1', 0),
             ]
         )
 
@@ -845,10 +862,10 @@ class TacticsTest(unittest.TestCase):
         t3 = Tactic(
             't3',
             [
-                Step('eval', ['?a@*'], '?0'),
-                Step('rewrite', ['?0', '?a', '0'], '?1'),
-                Step('eval', ['?1@*'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['eval'], ['?1@*'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
@@ -861,10 +878,10 @@ class TacticsTest(unittest.TestCase):
         t = Tactic(
             't',
             [
-                Step('eval', ['?a@*'], '?0'),
-                Step('rewrite', ['?0', '?a', '0'], '?1'),
-                Step('eval', ['?1@*'], '?2'),
-                Step('rewrite', ['?2', '?1', '0'], '?3'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['eval'], ['?1@*'], '?2'),
+                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
             ]
         )
 
@@ -883,24 +900,24 @@ class TacticsTest(unittest.TestCase):
         assert Tactic(
             't2',
             [
-                Step('t1', ['?a'], '?0'),
-                Step('t1', ['?0'], '?1'),
+                Step(['t1'], ['?a'], '?0'),
+                Step(['t1'], ['?0'], '?1'),
             ]
         ).is_potential_loop({})
 
         assert not Tactic(
             't2',
             [
-                Step('t1', ['?a'], '?0'),
-                Step('t4', ['?0'], '?1'),
+                Step(['t1'], ['?a'], '?0'),
+                Step(['t4'], ['?0'], '?1'),
             ]
         ).is_potential_loop({})
 
         assert not Tactic(
             't2',
             [
-                Step('t1', ['?a'], '?0'),
-                Step('t1', ['?b'], '?1'),
+                Step(['t1'], ['?a'], '?0'),
+                Step(['t1'], ['?b'], '?1'),
             ]
         ).is_potential_loop({})
 
@@ -912,10 +929,10 @@ class TacticsTest(unittest.TestCase):
         tactic = Tactic(
             'eval_rewrite_x2',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
-                Step('eval', ['?c'], '?2'),
-                Step('rewrite', ['?2', '?1'], '?3'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['eval'], ['?c'], '?2'),
+                Step(['rewrite'], ['?2', '?1'], '?3'),
             ]
         )
 
@@ -935,30 +952,30 @@ class TacticsTest(unittest.TestCase):
         assert Tactic(
             'eval_rewrite_x2',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
-                Step('eval', ['?c'], '?2'),
-                Step('rewrite', ['?2', '?1'], '?3'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['eval'], ['?c'], '?2'),
+                Step(['rewrite'], ['?2', '?1'], '?3'),
             ]
         ).is_connected()
 
         assert not Tactic(
             'eval_rewrite_x2',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('eval', ['?b'], '?1'),  # Useless eval
-                Step('rewrite', ['?0', '?c'], '?2'),
-                Step('eval', ['?d'], '?3'),
-                Step('rewrite', ['?3', '?2'], '?4'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['eval'], ['?b'], '?1'),  # Useless eval
+                Step(['rewrite'], ['?0', '?c'], '?2'),
+                Step(['eval'], ['?d'], '?3'),
+                Step(['rewrite'], ['?3', '?2'], '?4'),
             ]
         ).is_connected()
 
         assert not Tactic(
             'eval_rewrite_x2',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b', '?c'], '?1'),
-                Step('eval', ['?d'], '?2'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b', '?c'], '?1'),
+                Step(['eval'], ['?d'], '?2'),
             ]
         ).is_connected()
 
@@ -980,8 +997,8 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step('eval', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
+                Step(['eval'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
             ]
         )
 
@@ -1011,8 +1028,8 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             'tactic000',
             [
-                Step('+0_id', ['?a'], '?0'),
-                Step('rewrite', ['?0', '?b'], '?1'),
+                Step(['+0_id'], ['?a'], '?0'),
+                Step(['rewrite'], ['?0', '?b'], '?1'),
             ]
         )
 
