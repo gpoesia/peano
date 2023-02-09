@@ -29,7 +29,8 @@ def next_parameter_name(n: int):
 
 
 def is_result_name(name: str):
-    return name.startswith('?') and name[1:].isdigit()
+    return name.startswith('?') and ((name[1] == '^' and name[2:].isdigit())
+                                     or name[1:].isdigit())
 
 def is_parameter_name(name: str):
     return name.startswith('?') and name[1:].isalpha()
@@ -69,14 +70,14 @@ class Step:
     arrow: str
     arguments: tuple[str]
     result: str
-    loop: bool
+    branch: Optional[int]
 
     def __init__(self, arrow: str, arguments: list[str], result: str,
-                 loop: bool = False):
+                 branch: Optional[int] = None):
         object.__setattr__(self, 'arrow', arrow)
         object.__setattr__(self, 'arguments', tuple(arguments))
         object.__setattr__(self, 'result', result)
-        object.__setattr__(self, 'loop', loop)
+        object.__setattr__(self, 'branch', branch)
 
     def rewrite(self, before: str, after: str):
         'Replace all occurrences of an argument by another.'
@@ -85,7 +86,7 @@ class Step:
                     after if self.result == before else self.result)
 
     def __str__(self):
-        c = '*' if self.loop else ''
+        c = '*' if self.branch else ''
         return f'{self.result} <-{c} {self.arrow} {", ".join(self.arguments)}'
 
     @staticmethod
@@ -94,18 +95,19 @@ class Step:
         s = s.replace(',', '')
         pieces = s.split()
         result = pieces[0]
-        loop = pieces[1].endswith('*')
+        branch = pieces[1].endswith('*')
+        assert not branch, 'from_str/to_str not fixed to work with branches yet.'
         arrow = pieces[2]
         arguments = pieces[3:]
-        return Step(arrow, arguments, result, loop)
+        return Step(arrow, arguments, result, None)
 
 
-    def make_loop(self) -> 'Step':
+    def make_branch(self, branch: int) -> 'Step':
         return Step(
             arrow=self.arrow,
             arguments=self.arguments,
             result=self.result,
-            loop=True
+            branch=branch,
         )
 
 
@@ -392,15 +394,15 @@ class Tactic:
 
                 d.define(u, subdef_name, definition)
 
-                result_name = s.result if not s.loop else f'{s.result}.{len(t.definitions)}'
+                result_name = s.result if s.branch is None else f'{s.result}.{len(t.definitions)}'
                 new_assignments['?^'] = new_assignments[result_name] = subdef_name
                 nt = Trace(new_assignments, u, t.definitions + [(subdef_name, definition)])
 
-                if not s.loop:
+                if s.branch is None:
                     new_traces.extend(self._run_trace(nt, d, pc + 1, s.result, toplevel, scope))
                 else:
                     # Try repeating this step as much as possible.
-                    ts = self._run_trace(nt, d, pc, s.result, toplevel, scope + [subdef_name])
+                    ts = self._run_trace(nt, d, s.branch, s.result, toplevel, scope + [subdef_name])
                     if ts:
                         new_traces.extend(ts)
                     else:
@@ -482,7 +484,7 @@ class Tactic:
 
         return e
 
-    def is_potential_loop(self) -> bool:
+    def is_potential_loop(self, tactics: dict[str, 'Tactic']) -> bool:
         '''Returns True if this tactic could be generalized into a loop.
 
         This employs a trivial loop detection heuristic:
@@ -805,7 +807,7 @@ class TacticsTest(unittest.TestCase):
             't2',
             [
                 Step('t1', ['?a'], '?0'),
-                Step('t1', ['?^'], '?1', True),
+                Step('t1', ['?^'], '?1', 1),
             ]
         )
 
@@ -884,7 +886,7 @@ class TacticsTest(unittest.TestCase):
                 Step('t1', ['?a'], '?0'),
                 Step('t1', ['?0'], '?1'),
             ]
-        ).is_potential_loop()
+        ).is_potential_loop({})
 
         assert not Tactic(
             't2',
@@ -892,7 +894,7 @@ class TacticsTest(unittest.TestCase):
                 Step('t1', ['?a'], '?0'),
                 Step('t4', ['?0'], '?1'),
             ]
-        ).is_potential_loop()
+        ).is_potential_loop({})
 
         assert not Tactic(
             't2',
@@ -900,7 +902,7 @@ class TacticsTest(unittest.TestCase):
                 Step('t1', ['?a'], '?0'),
                 Step('t1', ['?b'], '?1'),
             ]
-        ).is_potential_loop()
+        ).is_potential_loop({})
 
 
     def test_tactic_beam_search(self):
