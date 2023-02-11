@@ -67,21 +67,21 @@ def is_location_generalization_of(l1: list[str], l2: list[str]) -> bool:
 @dataclass(eq=True, frozen=True)
 class Step:
     'Represents one step in a tactic.'
-    arrows: list[str]
+    arrows: tuple[str]
     arguments: tuple[str]
     result: str
     branch: Optional[int]
 
     def __init__(self, arrows: list[str], arguments: list[str], result: str,
                  branch: Optional[int] = None):
-        object.__setattr__(self, 'arrows', arrows)
+        object.__setattr__(self, 'arrows', tuple(arrows))
         object.__setattr__(self, 'arguments', tuple(arguments))
         object.__setattr__(self, 'result', result)
         object.__setattr__(self, 'branch', branch)
 
     def rewrite(self, before: str, after: str):
         'Replace all occurrences of an argument by another.'
-        return Step(self.arrows,
+        return Step([after if a == before else a for a in self.arrows],
                     [after if x == before else x for x in self.arguments],
                     after if self.result == before else self.result)
 
@@ -185,7 +185,8 @@ class Tactic:
         return self.steps == rhs.steps
 
     def rename(self, new_name: str) -> 'Tactic':
-        return Tactic(new_name, self.steps)
+        return Tactic(new_name,
+                      [s.rewrite(self.name, new_name) for s in self.steps])
 
     def is_connected(self):
         'Checks if all intermediate steps are used to compute the tactics output.'
@@ -278,7 +279,7 @@ class Tactic:
         for s1, s2 in zip(self.steps, t.steps):
             # NOTE: This is here from when each step had a single arrow, but not that
             # a step has a set of arrows it can take, we could generalize this and learn
-            # higher-order tactics quite easily.
+            # higher-order tactics quite easily by taking the union here.
             if s1.arrows != s2.arrows:
                 return None
 
@@ -438,7 +439,7 @@ class Tactic:
         for (concrete, _), (abstract, _) in zip(map(split_location, concrete_args),
                                                 map(split_location, abstract_args)):
             # NOTE: For now, this is ignoring the location expressions.
-            # This is probably fine, since locations in tactics are this trivial lattice
+            # This is probably fine, since for now locations in tactics form a trivial lattice
             # anyway (empty is bottom, or wildcard is top), and perhaps it will eventually
             # converge to always be the wildcard.
             if concrete == assignments.get(abstract, abstract):
@@ -501,27 +502,63 @@ class Tactic:
 
         return e
 
-    def is_potential_loop(self, tactics: dict[str, 'Tactic']) -> bool:
-        '''Returns True if this tactic could be generalized into a loop.
+    def potentially_recursive_step(self, tactics: list['Tactic']) -> Optional[int]:
+        '''Returns the index of a step that could be turned into a recursive call.
+        If no such recursive pattern has been found, returns None.
 
-        This employs a trivial loop detection heuristic:
-        a loop is detected once we create a tactic for what could be the second iteration,
-        assuming one full iteration has already been subsumed into a single tactic.
+        This employs a simple heuristic: this tactic calls another which
+        has the exact same structure, except it calls a different one at the equivalent
+        step.
         '''
-        return (len(self.steps) == 2 and  # Two iterations with the same arrow.
-                self.steps[0].arrows == self.steps[1].arrows and
-                # First iteration takes a parameter.
-                len(self.steps[0].arguments) == 1 and
-                # Second iteration takes the previous iteration's result.
-                is_parameter_name(self.steps[0].arguments[0]) and
-                self.steps[1].arguments[0] == self.steps[0].result)
 
-    def make_loop(self) -> 'Tactic':
-        assert self.is_potential_loop()
+        tactics_dict = dict((t.name, t) for t in tactics)
+
+        for i, s in enumerate(self.steps):
+            if len(s.arrows) != 1:
+                continue
+
+            # Find the tactic that is called at the i-th step.
+            callee = tactics_dict.get(s.arrows[0])
+            if callee is None:
+                continue
+
+            # Test if this could be a recursive step.
+            # 1- Callee needs to have the same number of steps.
+            if len(callee.steps) != len(self.steps):
+                continue
+            # 2- The steps before and after should be identical.
+            if callee.steps[:i] != self.steps[:i] or callee.steps[i+1:] != self.steps[i+1:]:
+                continue
+            # 3- The i-th step should be identical except for the arrow.
+            if callee.steps[i].arguments == s.arguments:
+                return i
+
+        return None
+
+    def make_recursive(self, tactics: list['Tactic']) -> 'Tactic':
+        i = self.potentially_recursive_step(tactics)
+        assert i is not None
+
+        new_name = f'{self.name}_rec'
+
+        callee = [t for t in tactics if t.name == self.steps[i].arrows[0]][0]
+
+        new_steps = list(self.steps)
+        # NOTE: The order below makes a difference. Putting new_name first makes the
+        # tactic try to execute as many iterations as possible, and only
+        # default to the base case when it can't anymore.
+        # On the other hand, inverting would make it keep trying to execute
+        # the base case, and stop whenever it is able to. This will cause
+        # different generalization behavior depending on the domain.
+        new_steps[i] = Step(callee.steps[i].arrows + (new_name,)
+                            if i == 0
+                            else (new_name,) + callee.steps[i].arrows,
+                            self.steps[i].arguments,
+                            self.steps[i].result)
 
         return Tactic(
-            name=f'{self.name}*',
-            steps=(self.steps[:-1] + (self.steps[-1].make_loop(),))
+            name=f'{self.name}_rec',
+            steps=new_steps,
         )
 
 
@@ -546,7 +583,7 @@ def rewrite_episode_using_tactics(episode: Episode, d: 'Domain',
 MAX_SLICES = 10**4
 
 def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
-                   filter_comparable_to: list[Tactic] = [],
+                   existing_tactics: list[Tactic] = [],
                    induce_loops: bool = False):
     episodes = [e for e in episodes if e.success]
     tactics_from_slices = []
@@ -585,7 +622,7 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
 
     for t in lggs:
         # Make sure tactic is independent from all existing ones.
-        if any(map(lambda e_t: e_t.is_comparable_to(t), filter_comparable_to)):
+        if any(map(lambda e_t: e_t.is_comparable_to(t), existing_tactics)):
             continue
 
         occurrences = 0
@@ -594,11 +631,11 @@ def induce_tactics(episodes: list[Episode], max_n: int, min_score: float,
             if t.is_generalization_of(s)[0]:
                 occurrences += 1
 
-        # If it's a loop and we're inducing loops, make t a loop.
+        # If it's a loop and we're inducing recursion, make t recursive.
         # NOTE: this could be done earlier if we make is_generalization_of able
         # to recognize unrolled loops, but right now it doesn't.
-        if induce_loops and t.is_potential_loop():
-            t = t.make_loop()
+        if induce_loops and t.potentially_recursive_step(existing_tactics) is not None:
+            t = t.make_recursive(existing_tactics)
 
         scored_lggs.append((t, occurrences))
 
@@ -896,31 +933,46 @@ class TacticsTest(unittest.TestCase):
         assert (traces[0].definitions[-1][1]
                 .clean_dtype(traces[0].universe) == '(= x 6)')
 
-    def test_loop_detection(self):
-        assert Tactic(
+    def test_recursion_induction(self):
+
+        t0 = Tactic(
+            't0',
+            [
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+            ]
+        )
+
+        t1 = Tactic(
+            't1',
+            [
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+                Step(['t0'], ['?1'], '?2'),
+            ]
+        )
+
+        t2 = Tactic(
             't2',
             [
-                Step(['t1'], ['?a'], '?0'),
-                Step(['t1'], ['?0'], '?1'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+                Step(['t1'], ['?1'], '?2'),
             ]
-        ).is_potential_loop({})
+        )
 
-        assert not Tactic(
-            't2',
-            [
-                Step(['t1'], ['?a'], '?0'),
-                Step(['t4'], ['?0'], '?1'),
-            ]
-        ).is_potential_loop({})
+        self.assertEqual(t2.potentially_recursive_step([t0, t1]), 2)
+        t2_rec = t2.make_recursive([t0, t1])
 
-        assert not Tactic(
-            't2',
-            [
-                Step(['t1'], ['?a'], '?0'),
-                Step(['t1'], ['?b'], '?1'),
-            ]
-        ).is_potential_loop({})
+        print(t2_rec)
 
+        import domain
+        d = domain.make_domain('subst-eval', [t0, t2_rec])
+        problem = d.start_derivation('(= x (* 2 (- (- (+ 5 (+ (+ 1 2) 3)) 3) 5)))', '(= x ?)')
+
+        traces = t2_rec.execute(problem.universe, d)
+
+        self.assertEqual(d.value_of(traces[0].universe, traces[0]), '(= x 6)')
 
     def test_tactic_beam_search(self):
         import domain
