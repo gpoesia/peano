@@ -244,7 +244,7 @@ class DomainFromTheory(Domain):
 
 
 class NaturalAddition(DomainFromTheory):
-    def __init__(self, max_n=8):
+    def __init__(self, max_n=10):
         super().__init__('arithmetic.p', ['rewrite', '+zl', '+s'])
         self.max_n = max_n
 
@@ -255,7 +255,7 @@ class NaturalAddition(DomainFromTheory):
 
     def generate_derivation(self, seed: int):
         random.seed(seed)
-        n1 = random.randint(0, self.max_n // 2)
+        n1 = random.randint(0, self.max_n)
         n2 = random.randint(0, self.max_n)
         n_term = NaturalAddition._format_unary_nat(n1)
         m_term = NaturalAddition._format_unary_nat(n2)
