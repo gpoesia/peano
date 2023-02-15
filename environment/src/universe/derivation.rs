@@ -33,6 +33,25 @@ fn is_real_const(s: &str) -> bool {
     s.parse::<Rational64>().is_ok()
 }
 
+// Returns true if the argument satisfies the argument expression.
+fn argument_satisfies(arg: &str, arg_expr: &Option<String>) -> bool {
+    match arg_expr {
+        None => true,
+        Some(e) => {
+            match e.split_once('@') {
+                Some((name, loc)) => {
+                    if loc == "*" {
+                        arg.starts_with(&format!("{}@", name))
+                    } else {
+                        arg == e
+                    }
+                },
+                None => { arg == e }
+            }
+        }
+    }
+}
+
 impl Derivation {
     pub fn new() -> Derivation {
         Derivation {
@@ -66,36 +85,42 @@ impl Derivation {
         self.context_.lookup(name)
     }
 
-    fn apply_builtin_eval(&self, new_terms: &mut Vec<Definition>, scope: &Option<Scope>) {
+    fn apply_builtin_eval(&self, new_terms: &mut Vec<Definition>, args: &Vec<Option<String>>,
+                          scope: &Option<Scope>) {
+
         for eq_name in self.context_.insertion_order.iter() {
-            if !out_of_scope(eq_name, scope) {
-                let def = self.context_.lookup(eq_name).unwrap();
-                self.apply_builtin_eval_with(&eq_name, def, new_terms);
+            if !out_of_scope(eq_name, scope) && argument_satisfies(eq_name, args.get(0).unwrap_or(&None)) {
+                if let Some(def) = self.context_.lookup(eq_name) {
+                    self.apply_builtin_eval_with(&eq_name, def, new_terms);
+                }
             }
         }
     }
 
-    fn apply_builtin_eq_refl(&self, new_terms: &mut Vec<Definition>, scope: &Option<Scope>) {
+    fn apply_builtin_eq_refl(&self, new_terms: &mut Vec<Definition>, args: &Vec<Option<String>>,
+                             scope: &Option<Scope>) {
         for name in self.context_.insertion_order.iter() {
-            if !out_of_scope(name, scope) {
+            if !out_of_scope(name, scope) && argument_satisfies(name, args.get(0).unwrap_or(&None)) {
                 let def = self.context_.lookup(name).unwrap();
                 self.apply_builtin_eq_refl_with(name, def, new_terms);
             }
         }
     }
 
-    fn apply_builtin_eq_symm(&self, new_terms: &mut Vec<Definition>, scope: &Option<Scope>) {
+    fn apply_builtin_eq_symm(&self, new_terms: &mut Vec<Definition>, args: &Vec<Option<String>>,
+                             scope: &Option<Scope>) {
         for name in self.context_.insertion_order.iter() {
-            if !out_of_scope(name, scope) {
+            if !out_of_scope(name, scope) && argument_satisfies(name, args.get(0).unwrap_or(&None)) {
                 let def = self.context_.lookup(name).unwrap();
                 self.apply_builtin_eq_symm_with(name, def, new_terms);
             }
         }
     }
 
-    fn apply_builtin_rewrite(&self, new_terms: &mut Vec<Definition>, scope: &Option<Scope>) {
+    fn apply_builtin_rewrite(&self, new_terms: &mut Vec<Definition>, args: &Vec<Option<String>>,
+                             scope: &Option<Scope>) {
         for name in self.context_.insertion_order.iter() {
-            if out_of_scope(name, scope) { continue; }
+            if out_of_scope(name, scope) || !argument_satisfies(name, args.get(0).unwrap_or(&None)) { continue; }
 
             let def = self.context_.lookup(name).unwrap();
 
@@ -107,7 +132,7 @@ impl Derivation {
                     let t2 = t2.eval(&self.context_);
 
                     for prop_name in self.context_.insertion_order.iter() {
-                        if out_of_scope(prop_name, scope) { continue; }
+                        if out_of_scope(prop_name, scope) || !argument_satisfies(name, args.get(1).unwrap_or(&None)) { continue; }
 
                         let prop_def = self.context_.lookup(prop_name).unwrap();
 
@@ -126,7 +151,7 @@ impl Derivation {
                                         input_types: &Vec<Rc<Term>>,
                                         output_type: &Rc<Term>,
                                         inputs: &mut Vec<Rc<Term>>,
-                                        predetermined: &Vec<Option<&String>>,
+                                        predetermined: &Vec<Option<String>>,
                                         scope: &Option<Scope>,
                                         results: &mut Vec<(Rc<Term>, Rc<Term>)>) {
         let next = inputs.len();
@@ -154,11 +179,14 @@ impl Derivation {
             _ => (None, input_types[next].clone()),
         };
 
-        let param = predetermined.get(next).unwrap_or(&None).map(|name| vec![name.clone()]);
         let mut seen_values = HashSet::new();
 
-        for name in param.as_ref().unwrap_or(&self.context_.insertion_order) {
+        for name in self.context_.insertion_order.iter() {
             if out_of_scope(&name, scope) {
+                continue;
+            }
+
+            if !argument_satisfies(name, predetermined.get(next).unwrap_or(&None)) {
                 continue;
             }
 
@@ -257,7 +285,7 @@ impl Derivation {
                             let mut fixed_params = Vec::new();
                             for (j, _t) in input_types.iter().enumerate() {
                                 if i == j {
-                                    fixed_params.push(Some(param_name));
+                                    fixed_params.push(Some(param_name.clone()));
                                 } else {
                                     fixed_params.push(None);
                                 }
@@ -564,7 +592,7 @@ impl Universe for Derivation {
     // If it does, adds that object to the universe, returning Ok.
     // Otherwise, returns an Err with all the objects that were constructed by the action.
     fn construct_by(&mut self, action: &String, target: &Term) -> Result<(), Vec<Definition>> {
-        let results = self.application_results(action, &None);
+        let results = self.application_results(action, &None, &vec![]);
 
         for def in results.iter() {
             if let Some(value) = &def.value {
@@ -583,7 +611,7 @@ impl Universe for Derivation {
     // If it does, adds that object to the universe, returning Ok.
     // Otherwise, returns an Err with all the objects that were constructed by the action.
     fn show_by(&mut self, action: &String, target_type: &Term) -> Result<(), Vec<Definition>> {
-        let results = self.application_results(action, &None);
+        let results = self.application_results(action, &None, &vec![]);
         let target_type = Rc::new(target_type.clone());
         let target_type_e = target_type.eval(&self.context_);
 
@@ -601,16 +629,17 @@ impl Universe for Derivation {
     // Applies an action with all possible distinct arguments.
     // Returns a vector with all produced results.
     fn application_results(&self, action: &String,
-                           scope: &Option<Scope>) -> Vec<Definition> {
+                           scope: &Option<Scope>,
+                           predetermined: &Vec<Option<String>>) -> Vec<Definition> {
         let mut new_terms = Vec::new();
 
         match self.context_.lookup(action) {
             None => {
                 match action.as_str() {
-                    "eval" => { self.apply_builtin_eval(&mut new_terms, scope); }
-                    "eq_refl" => { self.apply_builtin_eq_refl(&mut new_terms, scope); }
-                    "eq_symm" => { self.apply_builtin_eq_symm(&mut new_terms, scope); }
-                    "rewrite" => { self.apply_builtin_rewrite(&mut new_terms, scope); }
+                    "eval" => { self.apply_builtin_eval(&mut new_terms, predetermined, scope); }
+                    "eq_refl" => { self.apply_builtin_eq_refl(&mut new_terms, predetermined, scope); }
+                    "eq_symm" => { self.apply_builtin_eq_symm(&mut new_terms, predetermined, scope); }
+                    "rewrite" => { self.apply_builtin_rewrite(&mut new_terms, predetermined, scope); }
                     _ => {}
                 }
             },
@@ -623,7 +652,7 @@ impl Universe for Derivation {
                             input_types,
                             output_type,
                             &mut Vec::new(),
-                            &vec![],
+                            predetermined,
                             scope,
                             &mut results,
                         );

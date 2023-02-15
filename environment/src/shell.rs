@@ -23,13 +23,13 @@ const OPEN_IMAGE: &'static str = "";
 
 
 pub struct Shell {
-    universe: Box<dyn Universe>,
+    universe: Derivation,
 }
 
 impl Shell {
     pub fn new() -> Shell {
         // Can also replace Derivation by EGraphUniverse.
-        Shell { universe: Box::new(Derivation::new()) }
+        Shell { universe: Derivation::new() }
     }
 
     pub fn load_path(&mut self, path: &str) -> Result<usize, String> {
@@ -120,7 +120,7 @@ impl Shell {
     }
 
     pub fn apply(&mut self, action: &str, rl: &mut Editor<()>) -> () {
-        let defs = self.universe.application_results(&action.to_string(), &None);
+        let defs = self.universe.application_results(&action.to_string(), &None, &vec![]);
 
         if defs.len() == 0 {
             println!("No results.");
@@ -144,28 +144,6 @@ impl Shell {
                 _ => {}
             }
         }
-    }
-
-    pub fn apply_explode(&mut self, args: &str) -> () {
-        for a in args.split(" ") {
-            self.universe.apply(&a.to_string());
-        }
-    }
-
-    pub fn check(&mut self, args: &str) -> Result<Option<String>, String> {
-        if let Some((term, actions)) = args.split_once(" by ") {
-            match term.parse::<Term>() {
-                Err(e) => { return Err(e.to_string()); },
-                Ok(t) => {
-                    for a in actions.split(" ") {
-                        self.universe.apply(&a.to_string());
-                    }
-
-                    return Ok(self.universe.inhabited(&Rc::new(t)))
-                },
-            }
-        }
-        Err(String::from("Syntax: !check <type> by <action,action,...>"))
     }
 
     pub fn repl(&mut self) {
@@ -192,9 +170,6 @@ impl Shell {
                                 Ok(n) => println!("{} definitions loaded.", n),
                                 Err(err) => println!("Error loading {}: {}", args, err)
                             }
-                        } else if command == "apply_explode" {
-                            self.apply_explode(args);
-                            println!("{}", self.universe.dump_context());
                         } else if command == "apply" {
                             self.apply(args, &mut rl);
                             println!("{}", self.universe.dump_context());
@@ -209,12 +184,6 @@ impl Shell {
                                 Err(err) => println!("Error: {}", err),
                                 Ok(None) => println!("unknown"),
                                 Ok(Some(value)) => println!("{} = {}", args, value),
-                            }
-                        } else if command == "check" {
-                            match self.check(&args) {
-                                Err(err) => println!("Error: {}", err),
-                                Ok(None) => println!("no"),
-                                Ok(Some(witness)) => println!("yes ({})", witness),
                             }
                         } else if command == "actions" {
                             let actions: Vec<&String> = self.universe.actions().collect();

@@ -3,18 +3,9 @@ use std::collections::{HashMap, HashSet};
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::Python;
-use rand::Rng;
-use rand_pcg::Pcg64;
 
-use crate::universe::{Context, Universe, EGraphUniverse, Derivation, Definition, Term};
-use crate::domain::{new_rng, Domain, Blank, Equations};
-
-#[pyclass(unsendable)]
-struct PyUniverse {
-    pub universe: EGraphUniverse,
-    pub domain: Arc<dyn Domain>,
-    pub start_state: String,
-}
+use crate::universe::{Context, Universe, Derivation, Definition, Term};
+use crate::domain::{Domain, Blank, Equations};
 
 #[pyclass(unsendable)]
 struct PyDerivation {
@@ -42,17 +33,6 @@ impl PyDefinition {
                 Some(v) => v.to_string()
             },
             self.def.dtype.to_string()
-        )
-    }
-
-    pub fn clean_str(&self, u: &PyUniverse) -> String {
-        format!(
-            "{} : {}",
-            match &self.def.value {
-                None => String::from("_"),
-                Some(v) => v.in_context(&u.universe.context()).to_string()
-            },
-            self.def.dtype.in_context(&u.universe.context()).to_string()
         )
     }
 
@@ -89,97 +69,6 @@ impl PyDefinition {
 }
 
 #[pymethods]
-impl PyUniverse {
-    pub fn starting_state(&self) -> &String {
-        &self.start_state
-    }
-
-    pub fn actions(&self) -> Vec<String> {
-        self.universe.actions().map(|a| a.clone()).collect()
-    }
-
-    pub fn apply(&self, action: String) -> Vec<PyDefinition> {
-        self.universe.application_results(&action, &None)
-            .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
-    }
-
-    pub fn define(&mut self, name: String, d: &PyDefinition) {
-        self.universe.define(name, d.def.clone(), true);
-        self.universe.rebuild();
-    }
-
-    pub fn reward(&self) -> bool {
-        self.domain.reward(&self.universe)
-    }
-
-    pub fn incorporate(&mut self, context: &str) -> PyResult<bool> {
-        match context.parse() {
-            Ok(context) => {
-                self.universe.incorporate(&context);
-                Ok(true)
-            },
-            Err(e) => Err(PyValueError::new_err(format!("Failed to parse context: {}", e)))
-        }
-    }
-
-    pub fn are_equivalent(&mut self, lhs: &str, rhs: &str) -> PyResult<bool> {
-        match (lhs.parse(), rhs.parse()) {
-            (Ok(t1), Ok(t2)) => Ok(self.universe.are_equivalent(&t1, &t2)),
-            (Err(e), _) => Err(PyValueError::new_err(format!("Failed to parse {}: {}", lhs, e))),
-            (_, Err(e)) => Err(PyValueError::new_err(format!("Failed to parse {}: {}", rhs, e))),
-        }
-    }
-
-    pub fn clone(&self) -> PyUniverse {
-        PyUniverse {
-            universe: self.universe.clone(),
-            start_state: self.start_state.clone(),
-            domain: self.domain.clone(),
-        }
-    }
-
-    pub fn state(&self, ignore: Option<HashSet<String>>) -> Vec<(Vec<String>, String)> {
-        let mut summary = self.universe.context_summary();
-        match ignore {
-            Some(v) => {
-                for (objs, _) in summary.iter_mut() {
-                    objs.retain(|s| !v.contains(s));
-                }
-                summary.retain(|s| s.0.len() > 0);
-                summary
-            },
-            None => summary,
-        }
-    }
-
-    pub fn random_rollout(&mut self, actions: Vec<String>, n_actions: u32, seed: u64) -> bool {
-        let mut rng: Pcg64 = new_rng(seed);
-
-        for i in 0..n_actions {
-            let actions: Vec<&String> = if actions.len() > 0 {
-                actions.iter().collect()
-            } else{
-                self.universe.actions().collect()
-            };
-
-            let j = rng.gen_range(0..actions.len());
-
-            let results = self.universe.application_results(&actions[j], &None);
-
-            if results.len() == 0 {
-                continue;
-            }
-
-            let j = rng.gen_range(0..results.len());
-            self.universe.define(format!("r{}", i), results[j].clone(), true);
-            self.universe.rebuild();
-        }
-
-        self.reward()
-    }
-}
-
-#[pymethods]
 impl PyDerivation {
     #[new]
     pub fn new() -> PyDerivation {
@@ -192,8 +81,10 @@ impl PyDerivation {
         self.universe.actions().map(|a| a.clone()).collect()
     }
 
-    pub fn apply(&self, action: String, scope: Option<Vec<String>>) -> Vec<PyDefinition> {
-        self.universe.application_results(&action, &scope.map(|v| v.into_iter().collect()))
+    pub fn apply(&self, action: String, scope: Option<Vec<String>>,
+                 predetermined: Option<Vec<Option<String>>>) -> Vec<PyDefinition> {
+        self.universe.application_results(&action, &scope.map(|v| v.into_iter().collect()),
+                                          &(predetermined.unwrap_or(vec![])))
             .into_iter().map(|d| PyDefinition { def: d, action: action.clone() }).collect()
     }
 
@@ -207,26 +98,6 @@ impl PyDerivation {
 
     pub fn fast_forward_next_id(&mut self, i: usize) {
         self.universe.fast_forward_next_term_id(i)
-    }
-
-    pub fn apply_all(&self, actions: Vec<String>) -> Vec<PyDefinition> {
-        let mut result = Vec::new();
-        for a in actions {
-            result.extend(
-                self.universe.application_results(&a, &None)
-                             .into_iter().map(|d| PyDefinition { def: d, action: a.clone() }));
-        }
-        result
-    }
-
-    pub fn apply_all_with(&self, actions: Vec<String>, param_name: String) -> Vec<PyDefinition> {
-        let mut result = Vec::new();
-        for a in actions {
-            result.extend(
-                self.universe.apply_with(&a, &param_name)
-                             .into_iter().map(|d| PyDefinition { def: d, action: a.clone() }));
-        }
-        result
     }
 
     pub fn apply_with(&self, action: String, param_name: String) -> Vec<PyDefinition> {
@@ -315,11 +186,6 @@ impl PyDomain {
     pub fn size(&self) -> u64 {
         self.domain.size()
     }
-
-    pub fn generate(&mut self, seed: u64) -> PyUniverse {
-        let (u, s) = self.domain.generate(seed);
-        PyUniverse { universe: u, start_state: s, domain: self.domain.clone() }
-    }
 }
 
 thread_local!{
@@ -351,7 +217,6 @@ fn get_domain(name: String) -> PyResult<PyDomain> {
 
 #[pymodule]
 fn peano(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
-    m.add_class::<PyUniverse>()?;
     m.add_class::<PyDefinition>()?;
     m.add_class::<PyDerivation>()?;
     m.add_function(wrap_pyfunction!(domains, m)?)?;

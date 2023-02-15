@@ -32,12 +32,15 @@ def is_result_name(name: str):
     return name.startswith('?') and ((name[1] == '^' and name[2:].isdigit())
                                      or name[1:].isdigit())
 
+
 def is_parameter_name(name: str):
     return name.startswith('?') and name[1:].isalpha()
+
 
 def split_location(name: str) -> (str, list[str]):
     name, *loc = name.split('@')
     return name, loc
+
 
 def rewrite_name(name: str, rewrites: dict[str, str]):
     name, loc = split_location(name)
@@ -46,6 +49,7 @@ def rewrite_name(name: str, rewrites: dict[str, str]):
         return f'{name}@{"@".join(loc)}'
     else:
         return name
+
 
 def generalize_locations(name: str, l1: list[str], l2: list[str]) -> str:
     if not (l1 or l2):
@@ -56,12 +60,20 @@ def generalize_locations(name: str, l1: list[str], l2: list[str]) -> str:
 
     return f'{name}@*'
 
+
 def generalize_location_expression(name: str, location: list[str]) -> str:
     return name if not location else f'{name}@*'
+
 
 def is_location_generalization_of(l1: list[str], l2: list[str]) -> bool:
     'Returns whether location l1 is a generalization of l2.'
     return l1 == l2 or l1 == ['*']
+
+
+def assignment_from_args(args: list[str]) -> dict[str, str]:
+    return {next_parameter_name(i): arg
+            for i, arg in enumerate(args or [])
+            if arg is not None}
 
 
 @dataclass(eq=True, frozen=True)
@@ -349,9 +361,11 @@ class Tactic:
 
         return Tactic(self.name, new_steps)
 
-    def execute(self, u: peano.PyUniverse, d: 'Domain', toplevel = True, scope: list[str] = []) -> list[Trace]:
+    def execute(self, u: peano.PyDerivation, d: 'Domain', toplevel = True,
+                scope: list[str] = [], args: list[str] = []) -> list[Trace]:
         'Executes the tactic on the given universe and returns all results it is able to generate.'
-        r = self._run_trace(Trace({}, u, []), d, 0, None, toplevel, scope)
+        r = self._run_trace(Trace(assignment_from_args(args), u, []),
+                            d, 0, None, toplevel, scope)
 
         if toplevel:
             # Deduplicate results.
@@ -368,7 +382,7 @@ class Tactic:
         return r
 
     def _run_trace(self, t: Trace, d: 'Domain', pc: int, last_result: str,
-                    toplevel = True, scope: list[str] = []) -> list[Trace]:
+                   toplevel=True, scope: list[str] = []) -> list[Trace]:
 
         # Base case: tactic is over.
         if pc == len(self.steps):
@@ -380,13 +394,12 @@ class Tactic:
         new_traces = []
 
         # 1- Execute the step.
-        # NOTE: apply is fully non-deterministic. We should replace this with a new
-        # API for specifying all known parameters, and only being non-deterministic on the holes.
         for a in s.arrows:
             new_defs = d.apply(a, t.universe, False,
-                            (scope or []) + [v
+                               (scope or []) + [v
                                                 for k, v in t.assignments.items()
-                                                if is_result_name(k)])
+                                                if is_result_name(k)],
+                               [t.assignments.get(arg_name) for arg_name in s.arguments])
 
             # 2- For each valid result, make a new trace.
             for definition in new_defs:
@@ -706,9 +719,9 @@ class TacticsTest(unittest.TestCase):
             'eval_rewrite_x2',
             [
                 Step(['eval'], ['?a'], '?0'),
-                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['rewrite'], ['?0', '?b@*'], '?1'),
                 Step(['eval'], ['?c'], '?2'),
-                Step(['rewrite'], ['?2', '?1'], '?3'),
+                Step(['rewrite'], ['?2', '?1@*'], '?3'),
             ]
         )
 
@@ -718,10 +731,10 @@ class TacticsTest(unittest.TestCase):
         traces = tactic.execute(problem.universe, d)
 
         # This tactic should produce only one result here.
-        assert len(traces) == 1
+        self.assertEqual(len(traces), 1)
         # And its last definition should be a proof that (= x 6).
-        assert (traces[0].definitions[-1][1]
-                .clean_dtype(traces[0].universe) == '(= x 6)')
+        self.assertEqual(traces[0].definitions[-1][1]
+                         .clean_dtype(traces[0].universe), '(= x 6)')
 
     def test_generalize_tactic(self):
         t1 = Tactic(
@@ -821,8 +834,8 @@ class TacticsTest(unittest.TestCase):
         t1 = Tactic(
             't1',
             [
-                Step(['eval'], ['?a'], '?0'),
-                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?b@*'], '?1'),
             ]
         )
 
@@ -847,13 +860,12 @@ class TacticsTest(unittest.TestCase):
 
     def test_loop_tactic_execution(self):
         import domain
-        import policy
 
         t1 = Tactic(
             't1',
             [
                 Step(['eval'], ['?a@*'], '?0'),
-                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
             ]
         )
 
@@ -878,7 +890,7 @@ class TacticsTest(unittest.TestCase):
             't1',
             [
                 Step(['eval'], ['?a@*'], '?0'),
-                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
             ]
         )
 
@@ -900,9 +912,9 @@ class TacticsTest(unittest.TestCase):
             't3',
             [
                 Step(['eval'], ['?a@*'], '?0'),
-                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
                 Step(['eval'], ['?1@*'], '?2'),
-                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
+                Step(['rewrite'], ['?2', '?1@*'], '?3'),
             ]
         )
 
@@ -916,9 +928,9 @@ class TacticsTest(unittest.TestCase):
             't',
             [
                 Step(['eval'], ['?a@*'], '?0'),
-                Step(['rewrite'], ['?0', '?a', '0'], '?1'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
                 Step(['eval'], ['?1@*'], '?2'),
-                Step(['rewrite'], ['?2', '?1', '0'], '?3'),
+                Step(['rewrite'], ['?2', '?1@*'], '?3'),
             ]
         )
 
@@ -964,8 +976,6 @@ class TacticsTest(unittest.TestCase):
         self.assertEqual(t2.potentially_recursive_step([t0, t1]), 2)
         t2_rec = t2.make_recursive([t0, t1])
 
-        print(t2_rec)
-
         import domain
         d = domain.make_domain('subst-eval', [t0, t2_rec])
         problem = d.start_derivation('(= x (* 2 (- (- (+ 5 (+ (+ 1 2) 3)) 3) 5)))', '(= x ?)')
@@ -982,9 +992,9 @@ class TacticsTest(unittest.TestCase):
             'eval_rewrite_x2',
             [
                 Step(['eval'], ['?a'], '?0'),
-                Step(['rewrite'], ['?0', '?b'], '?1'),
+                Step(['rewrite'], ['?0', '?b@*'], '?1'),
                 Step(['eval'], ['?c'], '?2'),
-                Step(['rewrite'], ['?2', '?1'], '?3'),
+                Step(['rewrite'], ['?2', '?1@*'], '?3'),
             ]
         )
 

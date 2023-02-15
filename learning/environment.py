@@ -2,7 +2,7 @@
 
 import random
 
-from peano import PyUniverse as Universe, PyDefinition as Definition, get_domain
+from peano import PyDerivation as Universe, PyDefinition as Definition, get_domain
 
 
 class Environment:

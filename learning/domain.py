@@ -19,7 +19,7 @@ from util import choose_from_list, parse_sexp, format_sexp, randomize_atoms
 
 # Representing an existential type: each domain has /some/ associated problem type.
 class Problem:
-    def __init__(self, universe: peano.PyUniverse, description: str, goal: str, domain: 'Domain'):
+    def __init__(self, universe: peano.PyDerivation, description: str, goal: str, domain: 'Domain'):
         self.universe = universe
         self.description = description
         self.goal = goal
@@ -46,11 +46,12 @@ class Domain:
               arrow: str,
               universe: peano.PyDerivation,
               toplevel: bool = True,
-              scope: list[str] = None) -> list[peano.PyDefinition]:
+              scope: list[str] = None,
+              args: list[str] = None) -> list[peano.PyDefinition]:
         if arrow in self.tactics:
-            return self.tactics[arrow].execute(universe, self, toplevel, scope)
+            return self.tactics[arrow].execute(universe, self, toplevel, scope, args)
 
-        return universe.apply(arrow, scope)
+        return universe.apply(arrow, scope, args)
 
     def value_of(self, universe, definition) -> str:
         if hasattr(definition, 'definitions'):
@@ -82,13 +83,13 @@ class Domain:
     def make_problem(self, description: str, goal: str) -> Problem:
         raise NotImplementedError()
 
-    def state(self, universe: peano.PyUniverse) -> str:
+    def state(self, universe: peano.PyDerivation) -> str:
         raise NotImplementedError()
 
-    def actions(self, universe: peano.PyUniverse) -> list[str]:
+    def actions(self, universe: peano.PyDerivation) -> list[str]:
         raise NotImplementedError()
 
-    def reward(self, universe: peano.PyUniverse) -> bool:
+    def reward(self, universe: peano.PyDerivation) -> bool:
         raise NotImplementedError()
 
 
@@ -183,7 +184,7 @@ div_self_id : [((/ 'a 'a) : real) -> (= (/ 'a 'a) 1)].
         u.incorporate(f'equation: {equation}.')
         return Problem(u, equation, goal, self)
 
-    def reward(self, universe: peano.PyUniverse) -> bool:
+    def reward(self, universe: peano.PyDerivation) -> bool:
         'Try to find a rational in the equivalence class of x'
         s = universe.state()
         x_class = [c for (c, _dtype) in s if 'x' in c][0]
@@ -543,7 +544,7 @@ class MixedDomain(Domain):
     def derivation_state(self, universe: peano.PyDerivation) -> Optional[str]:
         raise NotImplementedError('Should call derivation_state from problem.domain')
 
-    def derivation_actions(self, universe: peano.PyUniverse) -> list[str]:
+    def derivation_actions(self, universe: peano.PyDerivation) -> list[str]:
         raise NotImplementedError('Should call derivation_actions from problem.domain')
 
 

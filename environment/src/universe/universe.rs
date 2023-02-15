@@ -62,14 +62,6 @@ pub trait Universe {
         self.context().actions()
     }
 
-    // Applies an action and add all of its results to the context.
-    // Returns the vector of all produced results.
-    fn apply(&mut self, action: &String) -> Vec<Definition> {
-        let new_terms = self.application_results(action, &None);
-        self.incorporate_definitions(&new_terms, format!("res_{}", action).as_str());
-        new_terms
-    }
-
     fn construct_by(&mut self, action: &String, target: &Term) -> Result<(), Vec<Definition>>;
 
     fn show_by(&mut self, action: &String, target_type: &Term) -> Result<(), Vec<Definition>>;
@@ -89,7 +81,8 @@ pub trait Universe {
 
     fn inhabited(&self, term_type: &Rc<Term>) -> Option<String>;
 
-    fn application_results(&self, action: &String, scope: &Option<Scope>) -> Vec<Definition>;
+    fn application_results(&self, action: &String, scope: &Option<Scope>,
+                           args: &Vec<Option<String>>) -> Vec<Definition>;
 
     fn dump_context(&self) -> String {
         self.context().to_string()
@@ -533,7 +526,7 @@ impl Universe for EGraphUniverse {
     // If it does, adds that object to the universe, returning Ok.
     // Otherwise, returns an Err with all the objects that were constructed by the action.
     fn construct_by(&mut self, action: &String, target: &Term) -> Result<(), Vec<Definition>> {
-        let results = self.application_results(action, &None);
+        let results = self.application_results(action, &None, &vec![]);
 
         for def in results.iter() {
             if let Some(value) = &def.value {
@@ -552,7 +545,7 @@ impl Universe for EGraphUniverse {
     // If it does, adds that object to the universe, returning Ok.
     // Otherwise, returns an Err with all the objects that were constructed by the action.
     fn show_by(&mut self, action: &String, target_type: &Term) -> Result<(), Vec<Definition>> {
-        let results = self.application_results(action, &None);
+        let results = self.application_results(action, &None, &vec![]);
 
         for def in results.iter() {
             if self.are_equivalent(target_type, &def.dtype) {
@@ -567,7 +560,7 @@ impl Universe for EGraphUniverse {
 
     // Applies an action with all possible distinct arguments.
     // Returns a vector with all produced results.
-    fn application_results(&self, action: &String, _scope: &Option<Scope>) -> Vec<Definition> {
+    fn application_results(&self, action: &String, _scope: &Option<Scope>, _args: &Vec<Option<String>>) -> Vec<Definition> {
         let mut new_terms = Vec::new();
 
         match self.context_.lookup(action) {
