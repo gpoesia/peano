@@ -242,7 +242,69 @@ class DomainFromTheory(Domain):
     def derivation_state(self, universe):
         return universe.state(self.initial_theory_state)
 
+class Temporal(DomainFromTheory):
+    def __init__(self, max_n=10):
+        super().__init__('temporal.p', ['before', 'after', 'before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
+        self.max_n = max_n
 
+    @staticmethod
+    @functools.cache
+    def _format_unary_event(n):
+        return 'let {} : event.'.format(n)
+    
+    def _format_binary_relation(e1, e2, rel):
+        return 'assume ({} {} {}).'.format(rel, e1, e2)
+    
+    def _format_goal(e1, e2, rel):
+        return '({} {} {}).'.format(rel, e1, e2)
+    
+    def query_gt_rel(e1, e2, gt_order):
+        if gt_order.index(e1) < gt_order.index(e2):
+            return 'before'
+        else:
+            return 'after'
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+        n_events = random.randint(2, self.max_n)
+        problem = []
+        
+        # initialization of events
+        for i in range(n_events):
+            problem.append(Temporal._format_unary_event(str(i))) 
+        
+        # gt temporal order
+        gt_order = random.choice(list(itertools.permutations(list(range(n_events)))))
+        
+        # temporal definitions
+        target_e1, target_e2 = random.sample(list(range(n_events)), 2)
+        this_event = target_e1
+        all_unused_events = list(range(n_events))
+        all_unused_events.remove(target_e1)
+        while target_e2 in all_unused_events:
+            new_event = random.choice(all_unused_events)
+            all_unused_events.remove(new_event)
+            this_rel = Temporal.query_gt_rel(this_event, new_event, gt_order)
+            problem.append(Temporal._format_binary_relation(str(this_event), str(new_event), this_rel))
+            this_event = new_event
+        
+        # goal
+        gt_rel = query_gt_rel(target_e1, target_e2, gt_order)
+        goal = Temporal._format_goal(target_e1, target_e2, gt_rel)
+        
+        return self.start_derivation('\n'.join(problem), goal)
+
+    def start_derivation(self, eq, goal):
+        u = self.base_derivation.clone()
+        return Problem(u, eq, goal, self)
+
+    def derivation_done(self, universe: peano.PyDerivation, goal: str) -> Optional[str]:
+        'Try to find an object of the goal type.'
+        for name, dtype, _, is_prop, _deps in universe.state():
+            if dtype == goal:
+                return name
+        return None
+    
 class NaturalAddition(DomainFromTheory):
     def __init__(self, max_n=10):
         super().__init__('arithmetic.p', ['rewrite', '+zl', '+s'])
