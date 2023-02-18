@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import collections
 from typing import Optional
 from dataclasses import dataclass
 import unittest
 import pickle
-from functools import cached_property
 import itertools
 import random
 
@@ -182,11 +183,9 @@ class Tactic:
     def __hash__(self):
         return hash(self.steps)
 
-    @cached_property
     def number_of_steps(self):
         return len(self.steps)
 
-    @cached_property
     def number_of_parameters(self):
         return len(set(p for s in self.steps for p, *_ in map(split_location, s.arguments)
                        if is_parameter_name(p)))

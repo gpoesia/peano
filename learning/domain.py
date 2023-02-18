@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import functools
 import os
 import pickle
@@ -242,13 +244,12 @@ class DomainFromTheory(Domain):
     def derivation_state(self, universe):
         return universe.state(self.initial_theory_state)
 
-class Temporal(DomainFromTheory):
+class TemporalDomain(DomainFromTheory):
     def __init__(self, max_n=10):
         super().__init__('temporal.p', ['before', 'after', 'before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
         self.max_n = max_n
 
     @staticmethod
-    @functools.cache
     def _format_unary_event(n):
         return 'let {} : event.'.format(n)
     
@@ -271,7 +272,7 @@ class Temporal(DomainFromTheory):
         
         # initialization of events
         for i in range(n_events):
-            problem.append(Temporal._format_unary_event(str(i))) 
+            problem.append(TemporalDomain._format_unary_event(str(i))) 
         
         # gt temporal order
         gt_order = random.choice(list(itertools.permutations(list(range(n_events)))))
@@ -284,13 +285,13 @@ class Temporal(DomainFromTheory):
         while target_e2 in all_unused_events:
             new_event = random.choice(all_unused_events)
             all_unused_events.remove(new_event)
-            this_rel = Temporal.query_gt_rel(this_event, new_event, gt_order)
-            problem.append(Temporal._format_binary_relation(str(this_event), str(new_event), this_rel))
+            this_rel = TemporalDomain.query_gt_rel(this_event, new_event, gt_order)
+            problem.append(TemporalDomain._format_binary_relation(str(this_event), str(new_event), this_rel))
             this_event = new_event
         
         # goal
-        gt_rel = query_gt_rel(target_e1, target_e2, gt_order)
-        goal = Temporal._format_goal(target_e1, target_e2, gt_rel)
+        gt_rel = TemporalDomain.query_gt_rel(target_e1, target_e2, gt_order)
+        goal = TemporalDomain._format_goal(target_e1, target_e2, gt_rel)
         
         return self.start_derivation('\n'.join(problem), goal)
 
@@ -311,7 +312,6 @@ class NaturalAddition(DomainFromTheory):
         self.max_n = max_n
 
     @staticmethod
-    @functools.cache
     def _format_unary_nat(n):
         return 'z' if n == 0 else f'(s {NaturalAddition._format_unary_nat(n-1)})'
 
@@ -557,7 +557,6 @@ n : nat.
         )
 
     @staticmethod
-    @functools.cache
     def _format_nat(n):
         return 'z' if n == 0 else f'(s {CountingDomain._format_nat(n-1)})'
 
@@ -641,6 +640,7 @@ DOMAINS = {
     'simpl2': Simpl2Domain,
     'simpl3': Simpl3Domain,
     'simpl4': Simpl4Domain,
+    'temporal': TemporalDomain,
 }
 
 
