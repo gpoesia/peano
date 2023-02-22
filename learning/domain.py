@@ -276,18 +276,18 @@ class TemporalDomain(DomainFromTheory):
         
         # gt temporal order
         gt_order = random.choice(list(itertools.permutations(list(range(n_events)))))
-        
+                
         # temporal definitions
         target_e1, target_e2 = random.sample(list(range(n_events)), 2)
-        this_event = target_e1
-        all_unused_events = list(range(n_events))
-        all_unused_events.remove(target_e1)
-        while target_e2 in all_unused_events:
-            new_event = random.choice(all_unused_events)
-            all_unused_events.remove(new_event)
-            this_rel = TemporalDomain.query_gt_rel(this_event, new_event, gt_order)
-            problem.append(TemporalDomain._format_binary_relation(str(this_event), str(new_event), this_rel))
-            this_event = new_event
+        
+        for i in range(len(gt_order)-1):
+            this_event = gt_order[i]
+            next_event = gt_order[i+1]
+            this_rel = random.choice(['before', 'after'])
+            if this_rel == 'before':
+                problem.append(TemporalDomain._format_binary_relation(str(this_event), str(next_event), this_rel))
+            else:
+                problem.append(TemporalDomain._format_binary_relation(str(next_event), str(this_event), this_rel))
         
         # goal
         gt_rel = TemporalDomain.query_gt_rel(target_e1, target_e2, gt_order)
