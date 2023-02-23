@@ -239,14 +239,14 @@ class DomainFromTheory(Domain):
         self.actions = actions
 
     def derivation_actions(self, _universe):
-        return self.actions
+        return self.actions # TODO: plus drawing action
 
     def derivation_state(self, universe):
         return universe.state(self.initial_theory_state)
 
 class TemporalDomain(DomainFromTheory):
-    def __init__(self, max_n=10):
-        super().__init__('temporal.p', ['before', 'after', 'before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
+    def __init__(self, max_n=8):
+        super().__init__('temporal.p', ['before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
         self.max_n = max_n
 
     @staticmethod
@@ -257,7 +257,7 @@ class TemporalDomain(DomainFromTheory):
         return 'assume ({} {} {}).'.format(rel, e1, e2)
     
     def _format_goal(e1, e2, rel):
-        return '({} {} {}).'.format(rel, e1, e2)
+        return '({} {} {})'.format(rel, e1, e2)
     
     def query_gt_rel(e1, e2, gt_order):
         if gt_order.index(e1) < gt_order.index(e2):
@@ -297,6 +297,7 @@ class TemporalDomain(DomainFromTheory):
 
     def start_derivation(self, eq, goal):
         u = self.base_derivation.clone()
+        u.incorporate(eq)
         return Problem(u, eq, goal, self)
 
     def derivation_done(self, universe: peano.PyDerivation, goal: str) -> Optional[str]:

@@ -292,7 +292,7 @@ class Policy(nn.Module):
 
                 # 0- Check if a solution was found
                 done_solution = next((s for s in beam
-                                      if problem.domain.derivation_done(s.solution.derivation)), None)
+                                      if problem.domain.derivation_done(s.solution.derivation, s.solution.goal)), None)
 
                 if done_solution is not None:
                     logger.debug('Solution state: %s', done_solution)
@@ -1009,6 +1009,7 @@ class ContrastivePolicy(Policy):
         for e in range(self.gradient_steps):
             optimizer.zero_grad()
             batch = random.sample(examples, k=min(len(examples), self.batch_size))
+            # print(batch)
             loss = self.get_loss(batch)
             loss.backward()
             optimizer.step()

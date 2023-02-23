@@ -1,3 +1,5 @@
+real : type.
+
 event: type.
 
 before: [event -> event -> prop].
