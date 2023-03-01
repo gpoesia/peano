@@ -840,6 +840,7 @@ class ContrastivePolicy(Policy):
 
 
     def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
+        # Choosing axioms 
         if len(arrows) <= 1:
             return torch.ones(len(arrows), dtype=torch.float, device=self.get_device())
         # state_embedding : (1, H)
@@ -852,10 +853,11 @@ class ContrastivePolicy(Policy):
         return arrow_embeddings.matmul(state_t).squeeze(1)
 
     def score_outcomes(self, outcomes: list[str], action: str, state: str) -> torch.Tensor:
+        # Choosing outcomes 
         if len(outcomes) <= 1:
             return torch.ones(len(outcomes), dtype=torch.float, device=self.get_device())
         # state_embedding : (1, H)
-        state_embedding = self.embed_states([state])
+        state_embedding = self.embed_states([state])        
         # outcome_embeddings : (B, H)
         outcome_embeddings = self.embed_outcomes(outcomes)
         # state_t : (H, 1)

@@ -239,14 +239,15 @@ class DomainFromTheory(Domain):
         self.actions = actions
 
     def derivation_actions(self, _universe):
-        return self.actions # TODO: plus drawing action
+        return self.actions
 
     def derivation_state(self, universe):
         return universe.state(self.initial_theory_state)
 
 class TemporalDomain(DomainFromTheory):
-    def __init__(self, max_n=8):
+    def __init__(self, min_n=6, max_n=8):
         super().__init__('temporal.p', ['before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
+        self.min_n = min_n
         self.max_n = max_n
 
     @staticmethod
@@ -267,12 +268,12 @@ class TemporalDomain(DomainFromTheory):
 
     def generate_derivation(self, seed: int):
         random.seed(seed)
-        n_events = random.randint(2, self.max_n)
-        problem = []
+        n_events = random.randint(self.min_n, self.max_n)
+        problem_defs, problem_assumptions = [], []
         
         # initialization of events
         for i in range(n_events):
-            problem.append(TemporalDomain._format_unary_event(str(i))) 
+            problem_defs.append(TemporalDomain._format_unary_event(str(i))) 
         
         # gt temporal order
         gt_order = random.choice(list(itertools.permutations(list(range(n_events)))))
@@ -285,14 +286,16 @@ class TemporalDomain(DomainFromTheory):
             next_event = gt_order[i+1]
             this_rel = random.choice(['before', 'after'])
             if this_rel == 'before':
-                problem.append(TemporalDomain._format_binary_relation(str(this_event), str(next_event), this_rel))
+                problem_assumptions.append(TemporalDomain._format_binary_relation(str(this_event), str(next_event), this_rel))
             else:
-                problem.append(TemporalDomain._format_binary_relation(str(next_event), str(this_event), this_rel))
+                problem_assumptions.append(TemporalDomain._format_binary_relation(str(next_event), str(this_event), this_rel))
         
         # goal
         gt_rel = TemporalDomain.query_gt_rel(target_e1, target_e2, gt_order)
         goal = TemporalDomain._format_goal(target_e1, target_e2, gt_rel)
         
+        # random.shuffle(problem_assumptions)
+        problem = problem_defs + problem_assumptions
         return self.start_derivation('\n'.join(problem), goal)
 
     def start_derivation(self, eq, goal):

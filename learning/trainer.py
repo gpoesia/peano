@@ -208,7 +208,9 @@ class TrainerAgent:
                             wandb.log({f'success_rate_{d}': eval_results.success_rate()})
                             success_rate[d] = eval_results.success_rate()
 
-                    existing_episodes = len(episodes)
+                    # existing_episodes = len(episodes)
+                    episodes = []
+                    existing_episodes = 0
 
                     # Aggregate episodes from searchers.
                     for i, f in enumerate(self.searcher_futures):
@@ -232,6 +234,7 @@ class TrainerAgent:
 
                     # Induce tactics from new episodes.
                     if self.config.get('induce_tactics'):
+                        assert 1==2
                         for _ in range(self.config.n_tactics):
                             proposals = induce_tactics(episodes[start_index:],
                                                        self.config.n_tactics,
@@ -278,7 +281,7 @@ class TrainerAgent:
                         logging.info('Success rate above passing grade, '
                                      'advancing in curriculum.')
 
-                    if train_success_rate < 1 and \
+                    '''if train_success_rate < 1 and \
                             (train_success_rate - last_train_success_rate) < \
                                 self.adjust_search_budget_threshold:
                         max_nodes *= self.search_budget_multiplier
@@ -287,7 +290,7 @@ class TrainerAgent:
                                      'increasing max search nodes to %d',
                                      train_success_rate, max_nodes)
                     else:
-                        max_nodes = self.max_nodes
+                        max_nodes = self.max_nodes'''
 
                     last_train_success_rate = train_success_rate
 
