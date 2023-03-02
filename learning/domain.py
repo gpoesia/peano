@@ -21,11 +21,12 @@ from util import choose_from_list, parse_sexp, format_sexp, randomize_atoms
 
 # Representing an existential type: each domain has /some/ associated problem type.
 class Problem:
-    def __init__(self, universe: peano.PyDerivation, description: str, goal: str, domain: 'Domain'):
+    def __init__(self, universe: peano.PyDerivation, description: str, goal: str, domain: 'Domain', canvas: np.array):
         self.universe = universe
         self.description = description
         self.goal = goal
         self.domain = domain
+        self.canvas = canvas
 
     def domain_name(self):
         return [k for k, v in DOMAINS.items() if self.domain.__class__ is v][0]
@@ -265,11 +266,60 @@ class TemporalDomain(DomainFromTheory):
             return 'before'
         else:
             return 'after'
+        
+    def existing_x(canvas, e):
+        existing = np.where(canvas == e)
+        if len(existing[1]) == 0:
+            return None
+        else:
+            return np.mean(existing[1])
+
+    def plot_relation(canvas, ea, eb, rel, s=1, p=2, y=32):
+        '''Note: color restricts events to be maxed at 10'''
+        ea += 1
+        eb += 1
+        color_ea = ea * 0.1
+        color_eb = eb * 0.1
+        canvas_size = canvas.shape[0]
+
+        # Get existing location if exists
+        ea_x = TemporalDomain.existing_x(canvas, color_ea)
+        eb_x = TemporalDomain.existing_x(canvas, color_eb)
+
+        # For non-existing locations use relation to determine location
+        if not ea_x and not eb_x:
+            # First step
+            if rel == 'before':
+                ea_x = int(canvas_size/2)
+                eb_x = ea_x + s + p + 1
+            else:
+                ea_x = int(canvas_size/2)
+                eb_x = ea_x - s - p - 1
+        elif not eb_x:
+            if rel == 'before':
+                eb_x = ea_x + s + p + 1
+            else:
+                eb_x = ea_x - s - p - 1
+        elif not ea_x:
+            if rel == 'before':
+                ea_x = eb_x - s - p - 1
+            else:
+                ea_x = eb_x + s + p + 1
+
+        ea_x = int(ea_x)
+        eb_x = int(eb_x)
+
+        # color with event value
+        sy = 24
+        canvas[y-sy:y+sy+1, ea_x-s:ea_x+s+1, :] = color_ea
+        canvas[y-sy:y+sy+1, eb_x-s:eb_x+s+1, :] = color_eb
+        return canvas 
 
     def generate_derivation(self, seed: int):
         random.seed(seed)
         n_events = random.randint(self.min_n, self.max_n)
         problem_defs, problem_assumptions = [], []
+        canvas_assumptions = []
         
         # initialization of events
         for i in range(n_events):
@@ -287,21 +337,29 @@ class TemporalDomain(DomainFromTheory):
             this_rel = random.choice(['before', 'after'])
             if this_rel == 'before':
                 problem_assumptions.append(TemporalDomain._format_binary_relation(str(this_event), str(next_event), this_rel))
+                canvas_assumptions.append((this_event, next_event, this_rel))
             else:
                 problem_assumptions.append(TemporalDomain._format_binary_relation(str(next_event), str(this_event), this_rel))
+                canvas_assumptions.append((next_event, this_event, this_rel))
         
         # goal
         gt_rel = TemporalDomain.query_gt_rel(target_e1, target_e2, gt_order)
         goal = TemporalDomain._format_goal(target_e1, target_e2, gt_rel)
         
+        # canvas
+        canvas = np.ones((4*self.max_n*2, 4*self.max_n*2, 3))
+        for ca in canvas_assumptions:
+            canvas = TemporalDomain.plot_relation(canvas, ca[0], ca[1], ca[2])
+        canvas = np.transpose(canvas, (2, 0, 1))
+        
         # random.shuffle(problem_assumptions)
         problem = problem_defs + problem_assumptions
-        return self.start_derivation('\n'.join(problem), goal)
+        return self.start_derivation('\n'.join(problem), goal, canvas)
 
-    def start_derivation(self, eq, goal):
+    def start_derivation(self, eq, goal, canvas):
         u = self.base_derivation.clone()
         u.incorporate(eq)
-        return Problem(u, eq, goal, self)
+        return Problem(u, eq, goal, self, canvas)
 
     def derivation_done(self, universe: peano.PyDerivation, goal: str) -> Optional[str]:
         'Try to find an object of the goal type.'

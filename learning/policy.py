@@ -76,6 +76,7 @@ class SearchNode:
 
 @dataclass
 class Episode:
+    canvas: np.array
     problem: str
     goal: str = None
     domain: str = None
@@ -108,7 +109,7 @@ class Episode:
                 continue
 
             # Add all actions up to the i-th, and then only those in `actions`.
-            u = domain.start_derivation(self.problem, self.goal).universe
+            u = domain.start_derivation(self.problem, self.goal, self.canvas).universe
 
             ablated_solution = self.actions[:i] + actions
 
@@ -139,7 +140,7 @@ class Episode:
         self.recover_arguments(domain)
 
     def recover_arguments(self, domain: 'Domain'):
-        problem = domain.start_derivation(self.problem, self.goal)
+        problem = domain.start_derivation(self.problem, self.goal, self.canvas)
         arguments = []
 
         for i, (arrow, outcome) in enumerate(zip(self.actions[::2], self.actions[1::2])):
@@ -164,7 +165,7 @@ class Episode:
         self.arguments = arguments
 
     def recompute_negatives(self, domain: 'Domain'):
-        problem = domain.start_derivation(self.problem, self.goal)
+        problem = domain.start_derivation(self.problem, self.goal, self.canvas)
         solution = Solution.from_problem(problem)
         negatives = []
 
@@ -235,7 +236,8 @@ def recover_episode(problem, final_state: BeamElement, success) -> Episode:
 
         current = current.parent
 
-    e = Episode(problem.description,
+    e = Episode(problem.canvas,
+                problem.description,
                 problem.goal,
                 problem.domain_name(),
                 success,
@@ -309,7 +311,7 @@ class Policy(nn.Module):
                 # 1- Expand each node in the beam and score successors.
                 actions = [s.solution.successors(problem.domain) for s in beam]
                 action_probs = [(self.score_arrows([a.value for a in a_i],
-                                                   s.state) / temperature).softmax(-1)
+                                                    s.state) / temperature).softmax(-1)
                                 for a_i, s in zip(actions, beam)]
 
                 if logger.isEnabledFor(logging.DEBUG):
@@ -797,6 +799,7 @@ class ExampleType(Enum):
 @dataclass
 class ContrastivePolicyExample:
     type: ExampleType
+    canvas: np.array
     state: str
     positive: str = None
     negatives: list[str] = None
@@ -808,6 +811,47 @@ class ContrastivePolicyExample:
                 sum(map(len, self.negatives or [])))
 
 
+class ImageEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.img_encoder = nn.Sequential(
+            # in: 3 x 64 x 64
+            
+            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            # out: 64 x 32 x 32
+
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            # out: 128 x 16 x 16
+
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            # out: 256 x 8 x 8
+
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            # out: 512 x 4 x 4
+
+            nn.Conv2d(512, 32, kernel_size=4, stride=1, padding=0, bias=False),
+            # out: 1 x 1 x 32
+            nn.Flatten())
+        
+        self.relu = nn.LeakyReLU(0.2, inplace=True)      
+        self.fc1 = nn.Linear(32, 16)
+        self.fc2 = nn.Linear(16, 16)
+
+    def forward(self, canvas):
+        x = self.img_encoder(canvas)               
+        x = self.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x    
+    
+    
 class ContrastivePolicy(Policy):
     def __init__(self, config):
         super().__init__()
@@ -817,8 +861,22 @@ class ContrastivePolicy(Policy):
                          bidirectional=True,
                          num_layers=config.gru.layers)
 
-        self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
-        self.outcome_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+        if config.scratchpad:
+            self.scratchpad = True
+            self.canvas_encoder = ImageEncoder().cuda()
+            if len(config.scratchpad_path) != 0:
+                state_dict = torch.load(config.scratchpad_path)
+                state_dict.pop('img_encoder.12.weight', None)
+                self.canvas_encoder.load_state_dict(state_dict, strict=False)
+                print('Loaded: ' + config.scratchpad_path)
+            
+            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
+            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
+        else:
+            self.scratchpad = False
+            self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+            self.outcome_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
+            
         self.value_readout = nn.Sequential(
             nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size),
             nn.ReLU(),
@@ -827,7 +885,7 @@ class ContrastivePolicy(Policy):
 
         self.embedding = nn.Embedding(128, config.gru.embedding_size)
         self.discard_unsolved = config.discard_unsolved
-        self.train_value_function = config.train_value_function
+        self.train_value_function = config.train_value_function 
 
         # Truncate states/actions to avoid OOMs.
         self.max_len = MAX_STATE_LENGTH
@@ -839,12 +897,18 @@ class ContrastivePolicy(Policy):
         self.solution_augmentation_rate = config.solution_augmentation_rate
 
 
-    def score_arrows(self, arrows: list[str], state: str) -> torch.Tensor:
+    def score_arrows(self, arrows: list[str], state: str, canvas: np.array) -> torch.Tensor:
         # Choosing axioms 
         if len(arrows) <= 1:
             return torch.ones(len(arrows), dtype=torch.float, device=self.get_device())
         # state_embedding : (1, H)
         state_embedding = self.embed_states([state])
+        
+        if self.scratchpad:
+            canvas = torch.from_numpy(np.expand_dims(canvas, axis=0))
+            canvas_embedding = self.canvas_encoder(canvas.float().cuda())
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
+        
         # arrow_embedding : (B, H)
         arrow_embeddings = self.embed_arrows(arrows)
         # state_t : (H, 1)
@@ -852,12 +916,18 @@ class ContrastivePolicy(Policy):
         # Result: (B,)
         return arrow_embeddings.matmul(state_t).squeeze(1)
 
-    def score_outcomes(self, outcomes: list[str], action: str, state: str) -> torch.Tensor:
+    def score_outcomes(self, outcomes: list[str], action: str, state: str, canvas: np.array) -> torch.Tensor:
         # Choosing outcomes 
         if len(outcomes) <= 1:
             return torch.ones(len(outcomes), dtype=torch.float, device=self.get_device())
         # state_embedding : (1, H)
-        state_embedding = self.embed_states([state])        
+        state_embedding = self.embed_states([state])   
+        
+        if self.scratchpad:
+            canvas = torch.from_numpy(np.expand_dims(canvas, axis=0))
+            canvas_embedding = self.canvas_encoder(canvas.float().cuda())
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)    
+        
         # outcome_embeddings : (B, H)
         outcome_embeddings = self.embed_outcomes(outcomes)
         # state_t : (H, 1)
@@ -873,18 +943,96 @@ class ContrastivePolicy(Policy):
 
     def get_device(self):
         return self.embedding.weight.device
+    
+    def beam_search(self,
+                    problem: Problem,
+                    depth: int,
+                    temperature: float = 1,
+                    beam_size: int = 1,
+                    epsilon: float = 0) -> Episode:
+
+        with torch.no_grad():
+            initial_sol = Solution.from_problem(problem)
+            beam = [BeamElement(solution=initial_sol,
+                                state=initial_sol.format(MAX_STATE_LENGTH),
+                                logprob=0.0)]
+
+            # Each iteration happens in 3 stages:
+            # 0- Check if a solution was found
+            # 1- Score actions for each state in the beam
+            # 2- Rerank and apply outcome to states to obtain next beam
+            for it in range(depth + 1):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f'Beam #{it}:')
+                    for e in beam:
+                        logger.debug('  %s', e)
+
+                # 0- Check if a solution was found
+                done_solution = next((s for s in beam
+                                      if problem.domain.derivation_done(s.solution.derivation, s.solution.goal)), None)
+
+                if done_solution is not None:
+                    logger.debug('Solution state: %s', done_solution)
+                    return recover_episode(problem, done_solution, True)
+
+                if it == depth:
+                    # On the extra iteration, just check if we have a solution, but otherwise
+                    # don't keep expanding nodes.
+                    break
+
+                # epsilon-greedy: pick random actions in this iteration with probability eps.
+                take_random_action = random.random() < epsilon
+
+                # 1- Expand each node in the beam and score successors.
+                actions = [s.solution.successors(problem.domain) for s in beam]
+                action_probs = [(self.score_arrows([a.value for a in a_i],
+                                                    s.state,
+                                                    problem.canvas) / temperature).softmax(-1)
+                                for a_i, s in zip(actions, beam)]
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('Arrow probabilities:')
+                    for i, s in enumerate(beam):
+                        logger.debug('  %s => %s', s.state,
+                                     sorted(list(zip(actions[i], action_probs[i])),
+                                            key=lambda aap: aap[1], reverse=True))
+
+                beam = [BeamElement(solution=s.solution,
+                                    state=s.state,
+                                    action=a,
+                                    logprob=s.logprob + log(action_probs[i][j].item()),
+                                    parent=s,
+                                    negative_actions=[a.value
+                                                      for a in actions[i][:j] + actions[i][j+1:]])
+                        for i, s in enumerate(beam)
+                        for j, a in enumerate(actions[i])]
+
+                # 2- Compute next beam
+                if take_random_action:
+                    beam = random.sample(beam, k=min(len(beam), beam_size))
+                else:
+                    beam = sorted(beam, key=lambda s: -s.logprob)[:beam_size]
+
+                for e in beam:
+                    e.solution = e.solution.push_action(e.action, problem.domain)
+                    e.state = e.solution.format(MAX_STATE_LENGTH)
+
+            return recover_episode(problem, beam[0] if beam else None, False)
 
     def extract_examples(self, episode, random_negatives=[]) -> list[ContrastivePolicyExample]:
         examples = []
+        
+        # print(episode.actions) # Note: when episodes.success, episodes.actions is none, otherwise actions exists
 
         if not episode.success and self.discard_unsolved:
             return examples
-
+        
         if isinstance(episode, Episode):
             for i, a in enumerate(episode.actions):
                 if episode.success:
                     if episode.negative_actions[i]:
                         examples.append(ContrastivePolicyExample(type=ExampleType.STATE_ACTION,
+                                                                 canvas=episode.canvas,
                                                                  state=episode.states[i],
                                                                  positive=a,
                                                                  negatives=episode.negative_actions[i]))
@@ -898,11 +1046,13 @@ class ContrastivePolicy(Policy):
                     value = (0 if not episode.success
                              else self.discount ** (len(episode.states) - (i + 1)))
                     examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
+                                                             canvas=episode.canvas,
                                                              state=episode.states[i],
                                                              value=value))
         elif isinstance(episode, TreeSearchEpisode):
             for node in episode.visited:
                 examples.append(ContrastivePolicyExample(type=ExampleType.STATE_VALUE,
+                                                         canvas=episode.canvas,
                                                          state=node.state,
                                                          value=node.value_target))
 
@@ -948,6 +1098,7 @@ class ContrastivePolicy(Policy):
             if i and is_augmentation[i-1]:
                 augmentations.append(ContrastivePolicyExample(
                     type=ExampleType.STATE_ACTION,
+                    canvas=episode.canvas,
                     state=states[2*i],
                     positive=positives[2*i],
                     negatives=negatives[2*i]
@@ -961,9 +1112,10 @@ class ContrastivePolicy(Policy):
 
         # HACK: This can be vectorized & batched, but it will be more complicated because
         # the number of classes is different for each contrastive example in the batch.
+                
         for e in batch:
             if e.type == ExampleType.STATE_ACTION:
-                p = self.score_arrows([e.positive] + e.negatives, e.state)
+                p = self.score_arrows([e.positive] + e.negatives, e.state, e.canvas)
                 losses.append(F.cross_entropy(p, torch.tensor(0).to(p.device)))
             elif e.type != ExampleType.STATE_VALUE:
                 raise ValueError(f'Unknown example type {e.type}')
@@ -974,8 +1126,11 @@ class ContrastivePolicy(Policy):
             y = [e.value for e in batch if e.type == ExampleType.STATE_VALUE]
             y_hat = self.estimate_values(state_values_x)
             losses.append(((y_hat - torch.tensor(y, device=y_hat.device))**2).mean())
-
-        return torch.stack(losses, dim=0).mean()
+        
+        try:
+            return torch.stack(losses, dim=0).mean()
+        except:
+            return 0.0
 
     def embed_raw(self, strs: list[str]) -> torch.Tensor:
         strs = [s[:self.max_len] for s in strs]
@@ -1004,10 +1159,10 @@ class ContrastivePolicy(Policy):
 
         # Assemble contrastive examples
         examples = []
-
+        
         for episode in dataset:
             examples.extend(self.extract_examples(episode, all_negatives))
-
+            
         for e in range(self.gradient_steps):
             optimizer.zero_grad()
             batch = random.sample(examples, k=min(len(examples), self.batch_size))

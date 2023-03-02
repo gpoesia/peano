@@ -31,7 +31,10 @@ trainer:
 
     model:
         type: contrastive-policy
-        scratchpad: false
+        
+        scratchpad: true
+        scratchpad_path: '/viscam/projects/visual_cot/scratch/readout_net.pth'
+        
         discard_unsolved: true
         train_value_function: false
         solution_augmentation_probability: 0.5
