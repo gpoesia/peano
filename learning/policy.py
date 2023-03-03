@@ -1130,6 +1130,7 @@ class ContrastivePolicy(Policy):
         try:
             return torch.stack(losses, dim=0).mean()
         except:
+            print('Loss errored')
             return 0.0
 
     def embed_raw(self, strs: list[str]) -> torch.Tensor:
