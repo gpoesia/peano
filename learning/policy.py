@@ -863,9 +863,10 @@ class ContrastivePolicy(Policy):
 
         if config.scratchpad:
             self.scratchpad = True
-            self.canvas_encoder = ImageEncoder().cuda()
+            self.canvas_encoder = ImageEncoder()# .cuda()
+            # self.canvas_encoder = self.canvas_encoder.to(torch.device('cuda:0'))
             if len(config.scratchpad_path) != 0:
-                state_dict = torch.load(config.scratchpad_path)
+                state_dict = torch.load(config.scratchpad_path) #, map_location=self.get_device())
                 state_dict.pop('img_encoder.12.weight', None)
                 self.canvas_encoder.load_state_dict(state_dict, strict=False)
                 print('Loaded: ' + config.scratchpad_path)
@@ -906,7 +907,7 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0))
-            canvas_embedding = self.canvas_encoder(canvas.float().cuda())
+            canvas_embedding = self.canvas_encoder(canvas.float()) #.cuda())
             state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
         
         # arrow_embedding : (B, H)
@@ -925,7 +926,7 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0))
-            canvas_embedding = self.canvas_encoder(canvas.float().cuda())
+            canvas_embedding = self.canvas_encoder(canvas.float()) #.cuda())
             state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)    
         
         # outcome_embeddings : (B, H)
