@@ -1131,8 +1131,8 @@ class ContrastivePolicy(Policy):
         try:
             return torch.stack(losses, dim=0).mean()
         except:
-            print('Loss errored')
-            return 0.0
+            print('Loss errored', flush=True)
+            return None
 
     def embed_raw(self, strs: list[str]) -> torch.Tensor:
         strs = [s[:self.max_len] for s in strs]
@@ -1170,10 +1170,10 @@ class ContrastivePolicy(Policy):
             batch = random.sample(examples, k=min(len(examples), self.batch_size))
             # print(batch)
             loss = self.get_loss(batch)
-            loss.backward()
-            optimizer.step()
-
-            wandb.log({'train_loss': loss.cpu()})
+            if loss:
+                loss.backward()
+                optimizer.step()
+                wandb.log({'train_loss': loss.cpu()})
 
             checkpoint_callback()
 
