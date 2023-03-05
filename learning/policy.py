@@ -837,13 +837,13 @@ class ImageEncoder(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # out: 512 x 4 x 4
 
-            nn.Conv2d(512, 32, kernel_size=4, stride=1, padding=0, bias=False),
-            # out: 1 x 1 x 32
+            nn.Conv2d(512, 64, kernel_size=4, stride=1, padding=0, bias=False),
+            # out: 1 x 1 x 64
             nn.Flatten())
         
         self.relu = nn.LeakyReLU(0.2, inplace=True)      
-        self.fc1 = nn.Linear(32, 16)
-        self.fc2 = nn.Linear(16, 16)
+        self.fc1 = nn.Linear(64, 32)
+        self.fc2 = nn.Linear(32, 16)
 
     def forward(self, canvas):
         x = self.img_encoder(canvas)               
