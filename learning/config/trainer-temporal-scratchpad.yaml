@@ -28,12 +28,14 @@ trainer:
     induce_loops: false
     n_tactics: 5
     min_tactic_score: 30
+    
+    gpus: [0, 1]
 
     model:
         type: contrastive-policy
         
         scratchpad: true
-        scratchpad_path: '/viscam/projects/visual_cot/scratch/readout_net.pth'
+        scratchpad_path: ''
         
         discard_unsolved: true
         train_value_function: false

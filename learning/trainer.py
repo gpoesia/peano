@@ -145,7 +145,6 @@ class TrainerAgent:
                                       len(self.train_domains) - 1)]
 
     def _get_searcher_device(self, searcher_index: int):
-        # return 'cuda:0'
         if 'gpus' in self.config:
             return self.config.gpus[:-1][searcher_index % (len(self.config.gpus) - 1)]
         return 'cpu'
