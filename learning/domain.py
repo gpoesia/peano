@@ -267,6 +267,15 @@ class TemporalDomain(DomainFromTheory):
         else:
             return 'after'
         
+    def axis_for_color(color_value):
+        cv = int(color_value * 10)
+        if cv % 3 == 0:
+            return 2
+        elif cv % 3 == 1:
+            return 0
+        else:
+            return 1
+        
     def existing_x(canvas, e):
         existing = np.where(canvas == e)
         if len(existing[1]) == 0:
@@ -311,8 +320,8 @@ class TemporalDomain(DomainFromTheory):
 
         # color with event value
         sy = 24
-        canvas[y-sy:y+sy+1, ea_x-s:ea_x+s+1, :] = color_ea
-        canvas[y-sy:y+sy+1, eb_x-s:eb_x+s+1, :] = color_eb
+        canvas[y-sy:y+sy+1, ea_x-s:ea_x+s+1, TemporalDomain.axis_for_color(color_ea)] = color_ea
+        canvas[y-sy:y+sy+1, eb_x-s:eb_x+s+1, TemporalDomain.axis_for_color(color_eb)] = color_eb
         return canvas 
 
     def generate_derivation(self, seed: int):

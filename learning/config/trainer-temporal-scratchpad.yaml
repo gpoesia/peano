@@ -1,7 +1,7 @@
 task: train
 
-train_interval: [500, 1000000]
-eval_interval: [0, 100]
+train_interval: [0, 500]
+eval_interval: [500, 640]
 
 trainer:
     train_domains:
@@ -35,7 +35,7 @@ trainer:
         type: contrastive-policy
         
         scratchpad: true
-        scratchpad_path: ''
+        scratchpad_path: '/viscam/projects/visual_cot/scratch/readout_net_v2.pth'
         
         discard_unsolved: true
         train_value_function: false

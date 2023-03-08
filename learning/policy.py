@@ -816,40 +816,38 @@ class ImageEncoder(nn.Module):
         super().__init__()
         self.img_encoder = nn.Sequential(
             # in: 3 x 64 x 64
-            
-            nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.Conv2d(3, 64, kernel_size=2, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
-            # out: 64 x 32 x 32
 
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.Conv2d(64, 128, kernel_size=2, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
-            # out: 128 x 16 x 16
 
             nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
-            # out: 256 x 8 x 8
 
             nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.2, inplace=True),
-            # out: 512 x 4 x 4
+            
+            nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(512, 64, kernel_size=4, stride=1, padding=0, bias=False),
-            # out: 1 x 1 x 64
+            nn.Conv2d(512, 6, kernel_size=4, stride=1, padding=0, bias=False),
             nn.Flatten())
         
         self.relu = nn.LeakyReLU(0.2, inplace=True)      
-        self.fc1 = nn.Linear(64, 32)
-        self.fc2 = nn.Linear(32, 16)
+        self.fc1 = nn.Linear(150, 64)
+        self.fc2 = nn.Linear(64, 64)
 
     def forward(self, canvas):
         x = self.img_encoder(canvas)               
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
-        return x    
+        return x 
     
     
 class ContrastivePolicy(Policy):
@@ -862,16 +860,20 @@ class ContrastivePolicy(Policy):
                          num_layers=config.gru.layers)
 
         if config.scratchpad:
+            print('Scratchpad', flush=True)
             self.scratchpad = True
             self.canvas_encoder = ImageEncoder()
             if len(config.scratchpad_path) != 0:
                 state_dict = torch.load(config.scratchpad_path)
-                state_dict.pop('img_encoder.12.weight', None)
                 self.canvas_encoder.load_state_dict(state_dict, strict=False)
                 print('Loaded: ' + config.scratchpad_path)
+                
+                print('Freezing image encoder')
+                for param in self.canvas_encoder.img_encoder.parameters():
+                    param.requires_grad = False
             
-            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
-            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
+            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+64, 2*config.gru.hidden_size)
+            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+64, 2*config.gru.hidden_size)
         else:
             self.scratchpad = False
             self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
