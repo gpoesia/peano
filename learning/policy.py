@@ -865,8 +865,9 @@ class ContrastivePolicy(Policy):
             self.canvas_encoder = ImageEncoder()
             if len(config.scratchpad_path) != 0:
                 state_dict = torch.load(config.scratchpad_path)
-                self.canvas_encoder.load_state_dict(state_dict, strict=False)
+                load_output = self.canvas_encoder.load_state_dict(state_dict, strict=False)
                 print('Loaded: ' + config.scratchpad_path)
+                print(load_output)
                 
                 print('Freezing image encoder')
                 for param in self.canvas_encoder.img_encoder.parameters():
