@@ -839,10 +839,10 @@ class ImageEncoder(nn.Module):
             nn.Conv2d(512, 6, kernel_size=4, stride=1, padding=0, bias=False),
             nn.Flatten())
         
-        self.relu = nn.LeakyReLU(0.2, inplace=True)      
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
         self.fc1 = nn.Linear(150, 64)
-        self.fc2 = nn.Linear(64, 64)
-
+        self.fc2 = nn.Linear(64, 32)
+        
     def forward(self, canvas):
         x = self.img_encoder(canvas)               
         x = self.relu(self.fc1(x))
@@ -873,8 +873,8 @@ class ContrastivePolicy(Policy):
                 for param in self.canvas_encoder.img_encoder.parameters():
                     param.requires_grad = False
             
-            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+64, 2*config.gru.hidden_size)
-            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+64, 2*config.gru.hidden_size)
+            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+32, 2*config.gru.hidden_size)
+            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+32, 2*config.gru.hidden_size)
         else:
             self.scratchpad = False
             self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
