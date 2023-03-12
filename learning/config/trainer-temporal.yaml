@@ -18,7 +18,7 @@ trainer:
     batch_size: 300
     n_searchers: 1
     max_depth: 16
-    max_nodes: 160
+    max_nodes: 320
     rerank_top_k: 200
     epsilon: 0.1
     algorithm: 'policy-beam-search'

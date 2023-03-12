@@ -393,7 +393,7 @@ class SearcherAgent:
                         epsilon=self.epsilon)
 
             if episode.success:
-                logger.info('Solved %s', episode.problem)
+                # logger.info('Solved %s', episode.problem)
                 successes += 1
 
             episodes.append(episode)
