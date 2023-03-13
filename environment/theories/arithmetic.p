@@ -11,35 +11,35 @@ z : nat.
 s : [nat -> nat].
 
 /* Natural numbers in binary. */
-b0 : [nat -> nat].  /* Appends a zero to the right. So, effectively, returns 2*n */
-b1 : [nat -> nat].  /* Appends a one to the right. So, effectively, returns 2*n + 1 */
+/* b0 : [nat -> nat].  /* Appends a zero to the right. So, effectively, returns 2*n */
+/* b1 : [nat -> nat].  /* Appends a one to the right. So, effectively, returns 2*n + 1 */
 
 /* Converting from unary to binary */
-s_z : (= (s z) (b1 z)).
-s_b0 : [((s (b0 'n)) : nat) -> (= (s (b0 'n)) (b1 'n))].
-s_b1 : [((s (b1 'n)) : nat) -> (= (s (b1 'n)) (b0 (s 'n)))].
+/* s_z : (= (s z) (b1 z)).
+/* s_b0 : [((s (b0 'n)) : nat) -> (= (s (b0 'n)) (b1 'n))].
+/* s_b1 : [((s (b1 'n)) : nat) -> (= (s (b1 'n)) (b0 (s 'n)))].
 
 /* Converting from binary to unary */
-s_z : (= (s z) (b1 z)).
-s_b0 : [((s (b0 'n)) : nat) -> (= (s (b0 'n)) (b1 'n))].
-s_b1 : [((s (b1 'n)) : nat) -> (= (s (b1 'n)) (b0 (s 'n)))].
+/* s_z : (= (s z) (b1 z)).
+/* s_b0 : [((s (b0 'n)) : nat) -> (= (s (b0 'n)) (b1 'n))].
+/* s_b1 : [((s (b1 'n)) : nat) -> (= (s (b1 'n)) (b0 (s 'n)))].
 
 /* Decrementing natural numbers */
 /* Note: this is a partial function */
-pred : [nat -> nat].
+/* pred : [nat -> nat]. */
 
 /* Predecessor is left-inverse of successor (in the unary representation) */
-pred_s : [((pred (s 'n)) : nat) -> (= (pred (s 'n)) 'n)].
+/* pred_s : [((pred (s 'n)) : nat) -> (= (pred (s 'n)) 'n)]. */
 
 /* Predecessor of numbers in binary. */
-pred_b1 : [((pred (b1 'n)) : nat) -> (= (pred (b1 'n)) (b0 'n))].
-pred_b0 : [((pred (b0 'n)) : nat) -> (= (pred (b0 'n)) (b1 (pred 'n)))].
+/* pred_b1 : [((pred (b1 'n)) : nat) -> (= (pred (b1 'n)) (b0 'n))].
+pred_b0 : [((pred (b0 'n)) : nat) -> (= (pred (b0 'n)) (b1 (pred 'n)))]. */
 
 /* Less than or equal to. */
-n<= : [nat -> nat -> bool].
-n<=_zl : [((n<= z 'n) : bool) -> (= (n<= z 'n) true)].  /* z <= n is true for any n */
-n<=_zr : [((n<= (s 'n) z) : bool) -> (= (n<= (s 'n) z) false)].  /* (s n) <= z is false for any n */
-n<=_ss : [((n<= (s 'n) (s 'm)) : bool) -> (= (n<= (s 'n) (s 'm)) (n<= 'n 'm))]. /* Remaining case: lhs and rhs are both successors. */
+/* n<= : [nat -> nat -> bool]. */
+/* n<=_zl : [((n<= z 'n) : bool) -> (= (n<= z 'n) true)].  /* z <= n is true for any n */
+/* n<=_zr : [((n<= (s 'n) z) : bool) -> (= (n<= (s 'n) z) false)].  /* (s n) <= z is false for any n */
+/* n<=_ss : [((n<= (s 'n) (s 'm)) : bool) -> (= (n<= (s 'n) (s 'm)) (n<= 'n 'm))]. /* Remaining case: lhs and rhs are both successors. */
 
 /* Addition */
 n+ : [nat -> nat -> nat].
@@ -56,6 +56,13 @@ n+ : [nat -> nat -> nat].
 +10 : [((n+ (b1 'a) (b0 'b)) : nat) -> (= (n+ (b1 'a) (b0 'b)) (b1 (n+ 'a 'b)))].
 +01 : [((n+ (b0 'a) (b1 'b)) : nat) -> (= (n+ (b0 'a) (b1 'b)) (b1 (n+ 'a 'b)))].
 +11 : [((n+ (b1 'a) (b1 'b)) : nat) -> (= (n+ (b1 'a) (b1 'b)) (b0 (s (n+ 'a 'b))))].
+
+
+/* Unary subtraction. */
+n- : [nat -> nat -> nat].
+
+-z : [((n- 'n z) : nat) -> (= (n- 'n z) 'n)].
+-s : [((n- (s 'n) (s 'm)) : nat) -> (= (n- (s 'n) (s 'm)) (n- 'n 'm))].
 
 /* Multiplication */
 n* : [nat -> nat -> nat].
@@ -75,6 +82,13 @@ pos : sign.
 /* Integers: a signed natural number */
 int : type.
 snat : [sign -> nat -> int].
+
+/* Equations with natural numbers */
+n+-_assoc : [((n+ (n- 'a 'b) 'c) : nat) -> (= (n+ (n- 'a 'b) 'c) (n+ 'a (n- 'c 'b)))].
+n-+_assoc : [((n- (n+ 'a 'b) 'c) : nat) -> (= (n- (n+ 'a 'b) 'c) (n+ 'a (n- 'b 'c)))].
+
+nadd_eq : [(= 'a 'b) -> ('c : nat) -> (= (n+ 'a 'c) (n+ 'b 'c))].
+nsub_eq : [(= 'a 'b) -> ('c : nat) -> (= (n- 'a 'c) (n- 'b 'c))].
 
 verify two_plus_one {
     let sum : nat = (n+ (b0 (b1 z))
