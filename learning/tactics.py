@@ -97,6 +97,16 @@ class Step:
                     [after if x == before else x for x in self.arguments],
                     after if self.result == before else self.result)
 
+    def __setstate__(self, d):
+        for k, v in d.items():
+            if k == 'arrow':
+                object.__setattr__(self, 'arrows', [v])
+            else:
+                object.__setattr__(self, k, v)
+
+        if 'branch' not in d:
+            object.__setattr__(self, 'branch', None)
+
     def __str__(self):
         c = f' ~~> {self.branch}' if self.branch is not None else ''
         arrows = self.arrows[0] if len(self.arrows) == 1 else f'({"|".join(self.arrows)})'
@@ -180,7 +190,7 @@ class Tactic:
         return Tactic(name, steps)
 
     def __hash__(self):
-        return hash(self.steps)
+        return hash(self._abstract_steps)
 
     @cached_property
     def number_of_steps(self):
@@ -191,10 +201,23 @@ class Tactic:
         return len(set(p for s in self.steps for p, *_ in map(split_location, s.arguments)
                        if is_parameter_name(p)))
 
+    @cached_property
+    def _abstract_steps(self) -> list[Step]:
+        '''Returns a list of steps where recursive calls are abstracted away.
+        This makes it easy to check for alpha-equivalence by syntactically
+        comparing sequences of abstract steps.
+        '''
+        return tuple(s.rewrite(self.name, '__rec__') for s in self.steps)
+
     def __eq__(self, rhs: 'Tactic'):
         '''Returns whether the two tactics are identical modulo their names.
-        Note that this is not testing for alpha-equivalence.'''
-        return self.steps == rhs.steps
+        This corresponds to alpha-equivalence at this tactic's body,
+        but does not know about equivalences between other tactics:
+        it will always assume that other tactics with different names
+        are different. However, since we don't add tactics that are
+        equal to a previous one according to __eq__, that assumption is
+        indeed valid during tactic induction.'''
+        return self._abstract_steps == rhs._abstract_steps
 
     def rename(self, new_name: str) -> 'Tactic':
         return Tactic(new_name,
@@ -980,9 +1003,45 @@ class TacticsTest(unittest.TestCase):
         d = domain.make_domain('subst-eval', [t0, t2_rec])
         problem = d.start_derivation('(= x (* 2 (- (- (+ 5 (+ (+ 1 2) 3)) 3) 5)))', '(= x ?)')
 
+        print(t2_rec)
+
         traces = t2_rec.execute(problem.universe, d)
 
         self.assertEqual(d.value_of(traces[0].universe, traces[0]), '(= x 6)')
+
+    def test_alpha_equivalence(self):
+        t2 = Tactic(
+            't2',
+            [
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+                Step(['t2', 't0'], ['?1'], '?2'),
+            ]
+        )
+
+        t3 = Tactic(
+            't3',
+            [
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+                Step(['t3', 't0'], ['?1'], '?2'),
+            ]
+        )
+
+        t4 = Tactic(
+            't4',
+            [
+                Step(['eval'], ['?a@*'], '?0'),
+                Step(['rewrite'], ['?0', '?a@*'], '?1'),
+                Step(['t3', 't0'], ['?1'], '?2'),
+            ]
+        )
+
+        self.assertEqual(t2, t3)
+        self.assertEqual(hash(t2), hash(t3))
+        self.assertNotEqual(t3, t4)
+        self.assertNotEqual(hash(t3), hash(t4))
+
 
     def test_tactic_beam_search(self):
         import domain
