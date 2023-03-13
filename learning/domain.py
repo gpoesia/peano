@@ -245,7 +245,7 @@ class DomainFromTheory(Domain):
 
 class NaturalAddition(DomainFromTheory):
     def __init__(self, max_n=10):
-        super().__init__('arithmetic.p', ['rewrite', '+zl', '+s'])
+        super().__init__('arithmetic.p', ['rewrite', '+zl', '+zr', '+s'])
         self.max_n = max_n
 
     @staticmethod
@@ -274,6 +274,156 @@ class NaturalAddition(DomainFromTheory):
                 continue
             m = re.match(r'^\(= ans (.*)\)$', dtype)
             if m and m.groups()[0].find('n+') == -1:
+                return name
+        return None
+
+
+class NaturalSubtraction(DomainFromTheory):
+    def __init__(self, max_n=10):
+        super().__init__('arithmetic.p', ['rewrite', '-z', '-s'])
+        self.max_n = max_n
+
+    @staticmethod
+    @functools.cache
+    def _format_unary_nat(n):
+        return 'z' if n == 0 else f'(s {NaturalSubtraction._format_unary_nat(n-1)})'
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+        n1 = random.randint(0, self.max_n)
+        n2 = random.randint(0, n1)
+        n_term = NaturalSubtraction._format_unary_nat(n1)
+        m_term = NaturalSubtraction._format_unary_nat(n2)
+        eq = f'(= ans (n- {n_term} {m_term}))'
+        return self.start_derivation(eq, 'nat- ans')
+
+    def start_derivation(self, eq, goal):
+        u = self.base_derivation.clone()
+        u.incorporate(f'ans : nat. eq : {eq}.')
+        return Problem(u, eq, goal, self)
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to find an equality between ans and a reduced natural number.'
+        for name, dtype, _, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            m = re.match(r'^\(= ans (.*)\)$', dtype)
+            if m and m.groups()[0].find('n-') == -1:
+                return name
+        return None
+
+class NatCombiningLikeTerms(DomainFromTheory):
+    def __init__(self, max_n=10):
+        super().__init__('arithmetic.p',
+                         ['+zr', '+zl', '+s', '-z', '-s', 'rewrite',
+                          'n+-_assoc', 'n-+_assoc'])
+        self.max_n = max_n
+        self.templates = [
+            "(= ans (n+ (n- x d1) d2))",
+            "(= ans (n- (n+ x d2) d1))",
+        ]
+
+    @staticmethod
+    @functools.cache
+    def _format_unary_nat(n):
+        return 'z' if n == 0 else f'(s {NatCombiningLikeTerms._format_unary_nat(n-1)})'
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+
+        d1 = random.randint(0, self.max_n)
+        d2 = random.randint(d1, self.max_n)
+
+        sexp, _ = parse_sexp(random.choice(self.templates))
+        sexp = randomize_atoms(sexp,
+                               lambda s: s.startswith('d'),
+                               lambda: NotImplementedError,
+                               {'d1': NatCombiningLikeTerms._format_unary_nat(d1),
+                                'd2': NatCombiningLikeTerms._format_unary_nat(d2)})
+
+        return self.start_derivation(format_sexp(sexp), 'simpl ans')
+
+    def start_derivation(self, eq, goal):
+        u = self.base_derivation.clone()
+        u.incorporate(f'ans : nat. x : nat. eq : {eq}.')
+        return Problem(u, eq, goal, self)
+
+    @staticmethod
+    def _check_pattern(s: str, pattern: str, forbidden_constants: list[set[str]]):
+        m = re.match(pattern, s)
+
+        if not m:
+            return False
+
+        for g, f in zip(m.groups(), forbidden_constants):
+            if g in f:
+                return False
+
+        return True
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to find an equality between answer and a simplified term.'
+        for name, dtype, _, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            try:
+                # These match simplified expressions:
+                nat = r'(\(s )*z\)*'
+                if (NatCombiningLikeTerms._check_pattern(dtype, fr'\(= ans {nat}\)', []) or
+                    NatCombiningLikeTerms._check_pattern(dtype, r'\(= ans x\)', []) or
+                    NatCombiningLikeTerms._check_pattern(dtype, fr'\(= ans \(n[+-] x ({nat})\)\)', [{'z'}])):
+
+                    return name
+            except ValueError:
+                pass
+        return None
+
+
+class NatOneStepAddEq(DomainFromTheory):
+    def __init__(self, max_n=10):
+        super().__init__('arithmetic.p',
+                         ['+zr', '+zl', '+s', '-z', '-s', 'rewrite',
+                          'n+-_assoc', 'n-+_assoc', 'nadd_eq', 'nsub_eq'])
+
+        self.max_n = max_n
+        self.templates = [
+            "(= (n+ x d1) d2)",
+            "(= (n- x d1) d2)",
+        ]
+
+    @staticmethod
+    @functools.cache
+    def _format_unary_nat(n):
+        return 'z' if n == 0 else f'(s {NatOneStepAddEq._format_unary_nat(n-1)})'
+
+    def generate_derivation(self, seed: int):
+        random.seed(seed)
+
+        d1 = random.randint(0, self.max_n)
+        d2 = random.randint(d1, self.max_n)
+
+        sexp, _ = parse_sexp(random.choice(self.templates))
+        sexp = randomize_atoms(sexp,
+                               lambda s: s.startswith('d'),
+                               lambda: NotImplementedError,
+                               {'d1': NatOneStepAddEq._format_unary_nat(d1),
+                                'd2': NatOneStepAddEq._format_unary_nat(d2)})
+
+        return self.start_derivation(format_sexp(sexp), '(= x ?)')
+
+    def start_derivation(self, eq, goal):
+        u = self.base_derivation.clone()
+        u.incorporate(f'x : nat. eq : {eq}.')
+        return Problem(u, eq, goal, self)
+
+    def derivation_done(self, universe: peano.PyDerivation) -> Optional[str]:
+        'Try to find an equality between ans and a reduced natural number.'
+        for name, dtype, _, is_prop, _deps in universe.state():
+            if not is_prop:
+                continue
+            nat = r'(\(s )*z\)*'
+            m = re.match(fr'^\(= x {nat}\)$', dtype)
+            if m and m.groups()[0].find('n-') == -1:
                 return name
         return None
 
@@ -568,6 +718,9 @@ DOMAINS = {
     'equations': EquationsDomain,
     'counting': CountingDomain,
     'nat-add': NaturalAddition,
+    'nat-sub': NaturalSubtraction,
+    'nat-comb-like': NatCombiningLikeTerms,
+    'nat-one-step-add-eq': NatOneStepAddEq,
     'equations-ct': EquationsCtDomain,
     'subst-eval': SubstitutionAndEvaluatingExpressions,
     'comb-like': CombiningLikeTerms,
