@@ -246,7 +246,7 @@ class DomainFromTheory(Domain):
         return universe.state(self.initial_theory_state)
 
 class TemporalDomain(DomainFromTheory):
-    def __init__(self, min_n=6, max_n=8):
+    def __init__(self, min_n=25, max_n=30):
         super().__init__('temporal.p', ['before_trans', 'after_trans', 'not', 'not_after', 'not_before', 'after_inv', 'before_inv'])
         self.min_n = min_n
         self.max_n = max_n
@@ -356,10 +356,11 @@ class TemporalDomain(DomainFromTheory):
         goal = TemporalDomain._format_goal(target_e1, target_e2, gt_rel)
         
         # canvas
-        canvas = np.ones((4*self.max_n*2, 4*self.max_n*2, 3))
+        '''canvas = np.ones((4*self.max_n*2, 4*self.max_n*2, 3))
         for ca in canvas_assumptions:
             canvas = TemporalDomain.plot_relation(canvas, ca[0], ca[1], ca[2])
-        canvas = np.transpose(canvas, (2, 0, 1))
+        canvas = np.transpose(canvas, (2, 0, 1))'''
+        canvas = np.array(gt_order)
         
         # random.shuffle(problem_assumptions)
         problem = problem_defs + problem_assumptions

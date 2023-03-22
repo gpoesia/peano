@@ -872,9 +872,13 @@ class ContrastivePolicy(Policy):
                 print('Freezing image encoder')
                 for param in self.canvas_encoder.img_encoder.parameters():
                     param.requires_grad = False
+                    
+            self.gt_order_relu = nn.LeakyReLU(0.2, inplace=True)
+            self.gt_order_readout_1 = nn.Linear(30, 16)
+            self.gt_order_readout_2 = nn.Linear(16, 16)
             
-            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+32, 2*config.gru.hidden_size)
-            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+32, 2*config.gru.hidden_size)
+            self.arrow_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
+            self.outcome_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
         else:
             self.scratchpad = False
             self.arrow_readout = nn.Linear(2*config.gru.hidden_size, 2*config.gru.hidden_size)
@@ -909,8 +913,15 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
-            canvas_embedding = self.canvas_encoder(canvas.float())
+            max_len = 30
+            canvas = nn.ConstantPad1d((0, max_len-canvas.size(1)), 0)(canvas)
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas.float()))
+            canvas_embedding = self.gt_order_readout_2(canvas_embedding)
             state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
+            
+            '''canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
+            canvas_embedding = self.canvas_encoder(canvas.float())
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)'''
         
         # arrow_embedding : (B, H)
         arrow_embeddings = self.embed_arrows(arrows)
@@ -928,8 +939,15 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
+            max_len = 30
+            canvas = nn.ConstantPad1d((0, max_len-canvas.size(1)), 0)(canvas)
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas.float()))
+            canvas_embedding = self.gt_order_readout_2(canvas_embedding)
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
+            
+            '''canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
             canvas_embedding = self.canvas_encoder(canvas.float())
-            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)    
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)''' 
         
         # outcome_embeddings : (B, H)
         outcome_embeddings = self.embed_outcomes(outcomes)
