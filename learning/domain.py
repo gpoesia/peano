@@ -335,7 +335,8 @@ class TemporalDomain(DomainFromTheory):
             problem_defs.append(TemporalDomain._format_unary_event(str(i))) 
         
         # gt temporal order
-        gt_order = random.choice(list(itertools.permutations(list(range(n_events)))))
+        gt_order = list(range(n_events))
+        random.shuffle(gt_order)
                 
         # temporal definitions
         target_e1, target_e2 = random.sample(list(range(n_events)), 2)
@@ -364,7 +365,8 @@ class TemporalDomain(DomainFromTheory):
         
         # random.shuffle(problem_assumptions)
         problem = problem_defs + problem_assumptions
-        return self.start_derivation('\n'.join(problem), goal, canvas)
+        d = self.start_derivation('\n'.join(problem), goal, canvas)
+        return d
 
     def start_derivation(self, eq, goal, canvas):
         u = self.base_derivation.clone()
