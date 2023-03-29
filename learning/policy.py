@@ -873,9 +873,14 @@ class ContrastivePolicy(Policy):
                 for param in self.canvas_encoder.img_encoder.parameters():
                     param.requires_grad = False
                     
+            self.max_seq_len = 30
+            self.event_embedding_dim = 3
             self.gt_order_relu = nn.LeakyReLU(0.2, inplace=True)
-            self.gt_order_readout_1 = nn.Linear(30, 16)
-            self.gt_order_readout_2 = nn.Linear(16, 16)
+            self.gt_order_embedding = nn.Embedding(num_embeddings=self.max_seq_len+1, embedding_dim=self.event_embedding_dim)
+            self.gt_flatten = nn.Flatten()
+            self.gt_order_readout_1 = nn.Linear(self.max_seq_len*self.event_embedding_dim, 64)
+            self.gt_order_readout_2 = nn.Linear(64, 32)
+            self.gt_order_readout_3 = nn.Linear(32, 16)
             
             self.arrow_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
             self.outcome_readout = nn.Linear(2*config.gru.hidden_size+16, 2*config.gru.hidden_size)
@@ -913,10 +918,12 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
-            max_len = 30
-            canvas = nn.ConstantPad1d((0, max_len-canvas.size(1)), 0)(canvas)
-            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas.float()))
-            canvas_embedding = self.gt_order_readout_2(canvas_embedding)
+            canvas = nn.ConstantPad1d((0, self.max_seq_len-canvas.size(1)), self.max_seq_len)(canvas)
+            canvas_embedding = self.gt_order_embedding(canvas)
+            canvas_embedding = self.gt_flatten(canvas_embedding)
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas_embedding))
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_2(canvas_embedding))
+            canvas_embedding = self.gt_order_readout_3(canvas_embedding)
             state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
             
             '''canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
@@ -939,10 +946,12 @@ class ContrastivePolicy(Policy):
         
         if self.scratchpad:
             canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
-            max_len = 30
-            canvas = nn.ConstantPad1d((0, max_len-canvas.size(1)), 0)(canvas)
-            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas.float()))
-            canvas_embedding = self.gt_order_readout_2(canvas_embedding)
+            canvas = nn.ConstantPad1d((0, self.max_seq_len-canvas.size(1)), self.max_seq_len)(canvas)
+            canvas_embedding = self.gt_order_embedding(canvas)
+            canvas_embedding = self.gt_flatten(canvas_embedding)
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_1(canvas_embedding))
+            canvas_embedding = self.gt_order_relu(self.gt_order_readout_2(canvas_embedding))
+            canvas_embedding = self.gt_order_readout_3(canvas_embedding)
             state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)
             
             '''canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())

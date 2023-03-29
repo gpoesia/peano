@@ -14,7 +14,7 @@ trainer:
     adjust_search_budget_threshold: 0.05
     search_budget_multiplier: 10
 
-    iterations: 400
+    iterations: 1000
     batch_size: 300
     n_searchers: 1
     max_depth: 60
