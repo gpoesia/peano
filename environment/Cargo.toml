@@ -11,7 +11,6 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 colored = "2.0.0"
-commoncore = { "path" = "deps/socratic-tutor/commoncore/" }
 egg = "0.7.1"
 linear-map = "1.2.0"
 num-rational = "0.4.0"

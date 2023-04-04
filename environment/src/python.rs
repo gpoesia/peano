@@ -5,7 +5,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::Python;
 
 use crate::universe::{Context, Universe, Derivation, Definition, Term};
-use crate::domain::{Domain, Blank, Equations};
+use crate::domain::{Domain, Blank};
 
 #[pyclass(unsendable)]
 struct PyDerivation {
@@ -192,8 +192,6 @@ thread_local!{
     pub static DOMAINS: HashMap<&'static str, Arc<dyn Domain>> = {
         let mut map : HashMap<&'static str, Arc<dyn Domain>> = HashMap::new();
         map.insert("blank", Arc::new(Blank::new()));
-        map.insert("equations-ct", Arc::new(Equations::new_ct()));
-        map.insert("equations-easy", Arc::new(Equations::new_easy()));
         map
     };
 }
