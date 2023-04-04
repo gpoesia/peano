@@ -1,0 +1,10 @@
+altair
+bottle
+hydra-core
+numpy
+omegaconf
+sympy
+torch
+tqdm
+transformers
+wandb
