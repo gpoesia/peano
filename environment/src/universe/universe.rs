@@ -170,7 +170,7 @@ impl EGraphUniverse {
                 }
 
                 let type_id = self.define_term(dtype, false, constrain_equality)?;
-                let name_id = self.egraph.add(SymbolLang::leaf(&name));
+                let name_id = self.egraph.add(SymbolLang::leaf(name));
 
                 // FIXME: This call causes repeated computation at every recursion level.
                 // If this becomes a performance issue in the future,

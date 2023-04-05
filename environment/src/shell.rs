@@ -5,6 +5,7 @@ use std::rc::Rc;
 use colored::Colorize;
 
 use rustyline::error::ReadlineError;
+use rustyline::history::DefaultHistory;
 use rustyline::Editor;
 use tempfile::NamedTempFile;
 use num_rational::Rational64;
@@ -119,7 +120,7 @@ impl Shell {
         }
     }
 
-    pub fn apply(&mut self, action: &str, rl: &mut Editor<()>) -> () {
+    pub fn apply(&mut self, action: &str, rl: &mut Editor<(), DefaultHistory>) -> () {
         let defs = self.universe.application_results(&action.to_string(), &None, &vec![]);
 
         if defs.len() == 0 {
@@ -147,7 +148,7 @@ impl Shell {
     }
 
     pub fn repl(&mut self) {
-        let mut rl = Editor::<()>::new();
+        let mut rl = Editor::<(), DefaultHistory>::new().unwrap();
 
         loop {
             match rl.readline("> ") {
@@ -193,7 +194,7 @@ impl Shell {
                         }
                     }
 
-                    rl.add_history_entry(line);
+                    rl.add_history_entry(line).unwrap();
                 },
                 Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
                     break;

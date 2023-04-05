@@ -11,14 +11,14 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 colored = "2.0.0"
-egg = "0.7.1"
+egg = "0.9.3"
 linear-map = "1.2.0"
-num-rational = "0.4.0"
-pest = "2.0"
-pest_derive = "2.0"
-pyo3 = { version = "0.16.3", features = ["extension-module"] }
-rand = "0.8.3"
-rand_pcg = "0.3.0"
-rustyline = "9.1.0"
+num-rational = "0.4.1"
+pest = "2.5"
+pest_derive = "2.5"
+pyo3 = { version = "0.18.2", features = ["extension-module"] }
+rand = "0.8.5"
+rand_pcg = "0.3.1"
+rustyline = "11.0.0"
 smallset = "0.1.1"
-tempfile = "3.0.3"
+tempfile = "3.5.0"
