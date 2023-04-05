@@ -474,6 +474,7 @@ dependencies = [
  "rand_pcg",
  "rustyline",
  "smallset",
+ "smallvec 1.10.0",
  "tempfile",
 ]
 
