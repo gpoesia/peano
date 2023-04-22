@@ -283,12 +283,11 @@ class TemporalDomain(DomainFromTheory):
         else:
             return np.mean(existing[1])
 
-    def plot_relation(canvas, ea, eb, rel, s=1, p=2, y=32):
-        '''Note: color restricts events to be maxed at 10'''
+    def plot_relation(canvas, ea, eb, rel, s=1, p=1, y=180):
         ea += 1
         eb += 1
-        color_ea = ea * 0.1
-        color_eb = eb * 0.1
+        color_ea = ea / 30 # max_n
+        color_eb = eb / 30
         canvas_size = canvas.shape[0]
 
         # Get existing location if exists
@@ -319,9 +318,8 @@ class TemporalDomain(DomainFromTheory):
         eb_x = int(eb_x)
 
         # color with event value
-        sy = 24
-        canvas[y-sy:y+sy+1, ea_x-s:ea_x+s+1, TemporalDomain.axis_for_color(color_ea)] = color_ea
-        canvas[y-sy:y+sy+1, eb_x-s:eb_x+s+1, TemporalDomain.axis_for_color(color_eb)] = color_eb
+        canvas[0:y, ea_x-s:ea_x+s+1, :] = color_ea # TemporalDomain.axis_for_color(color_ea)
+        canvas[0:y, eb_x-s:eb_x+s+1, :] = color_eb
         return canvas 
 
     def generate_derivation(self, seed: int):
@@ -357,9 +355,9 @@ class TemporalDomain(DomainFromTheory):
         goal = TemporalDomain._format_goal(target_e1, target_e2, gt_rel)
         
         # canvas
-        '''canvas = np.ones((4*self.max_n*2, 4*self.max_n*2, 3))
+        '''canvas = np.ones((3*self.max_n*2, 3*self.max_n*2, 3))
         for ca in canvas_assumptions:
-            canvas = TemporalDomain.plot_relation(canvas, ca[0], ca[1], ca[2])
+            canvas = TemporalDomain.plot_relation(canvas, ca[0], ca[1], ca[2])          
         canvas = np.transpose(canvas, (2, 0, 1))'''
         canvas = np.array(gt_order)
         

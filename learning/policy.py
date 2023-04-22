@@ -815,12 +815,19 @@ class ImageEncoder(nn.Module):
     def __init__(self):
         super().__init__()
         self.img_encoder = nn.Sequential(
-            # in: 3 x 64 x 64
-            nn.Conv2d(3, 64, kernel_size=2, stride=1, padding=1, bias=False),
+            nn.Conv2d(3, 32, kernel_size=2, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(32, 64, kernel_size=2, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(0.2, inplace=True),
 
-            nn.Conv2d(64, 128, kernel_size=2, stride=1, padding=1, bias=False),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
 
@@ -840,13 +847,15 @@ class ImageEncoder(nn.Module):
             nn.Flatten())
         
         self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.fc1 = nn.Linear(150, 64)
+        self.fc1 = nn.Linear(384, 64)
         self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, 16)
         
     def forward(self, canvas):
-        x = self.img_encoder(canvas)               
+        x = self.img_encoder(canvas)
         x = self.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.relu(self.fc2(x))
+        x = self.fc3(x)
         return x 
     
     
@@ -956,7 +965,7 @@ class ContrastivePolicy(Policy):
             
             '''canvas = torch.from_numpy(np.expand_dims(canvas, axis=0)).to(self.get_device())
             canvas_embedding = self.canvas_encoder(canvas.float())
-            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)''' 
+            state_embedding = torch.cat([state_embedding, canvas_embedding], dim=1)'''
         
         # outcome_embeddings : (B, H)
         outcome_embeddings = self.embed_outcomes(outcomes)
