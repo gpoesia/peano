@@ -1,0 +1,64 @@
+task: test
+
+train_interval: [500, 1000000]
+eval_interval: [0, 100]
+domain: temporal
+
+searcher:
+    train_domains:
+        - temporal
+
+    eval_domains:
+        - temporal
+
+    passing_grade: 1.0
+    adjust_search_budget_threshold: 0.05
+    search_budget_multiplier: 10
+
+    iterations: 3000
+    batch_size: 300
+    n_searchers: 1
+    max_depth: 60
+    max_nodes: 256
+    rerank_top_k: 200
+    epsilon: 0.1
+    algorithm: 'policy-beam-search'
+    accumulate: true
+
+    induce_tactics: false
+    induce_loops: false
+    n_tactics: 5
+    min_tactic_score: 30
+    
+    gpus: 0
+
+    model:
+        type: contrastive-policy
+        path: '/viscam/projects/visual_cot/peano/learning/outputs/2023-03-24/11-23-29/904.pt'
+        
+        scratchpad: true
+        scratchpad_path: ''
+        
+        discard_unsolved: true
+        train_value_function: false
+        solution_augmentation_probability: 0.5
+        solution_augmentation_rate: 0.5
+
+        gru:
+            embedding_size: 32
+            hidden_size: 32
+            layers: 2
+
+        gradient_steps: 2048
+        batch_size: 1
+        lr: 0.0005
+
+        interaction: dot-product
+        normalize: true
+
+job:
+    wandb_project: peano
+
+hydra:
+    job:
+        chdir: true

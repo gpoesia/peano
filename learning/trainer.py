@@ -36,6 +36,7 @@ def spawn_searcher(rank, iteration, domain, tactics, max_nodes, max_depth,
                 if rank is not None
                 else None)
 
+    print(model_path, flush=True)
     m = load_search_model(model_type, model_path, device=device)
 
     if out_path is not None and os.path.exists(out_path):
@@ -325,19 +326,22 @@ def main(cfg: DictConfig):
             with open(cfg.tactics, 'rb') as f:
                 tactics = pickle.load(f)
 
-        episodes = spawn_searcher(None, None,
+        searcher_results = spawn_searcher(None, None,
                                   cfg.domain,
                                   tactics,
                                   cfg.searcher.max_nodes,
                                   cfg.searcher.max_depth,
                                   cfg.searcher.epsilon,
-                                  cfg.searcher.model_type,
-                                  cfg.searcher.model_path,
-                                  range(*cfg.searcher.seed_interval),
-                                  torch.device(cfg.searcher.device))
+                                  cfg.searcher.model.type,
+                                  cfg.searcher.model.path,
+                                  range(*cfg.eval_interval),
+                                  torch.device(cfg.searcher.gpus))
+        
+        success_rate = sum(1 for e in searcher_results.episodes if e.success) / len(searcher_results.episodes)
+        print(success_rate)
 
-        with open(cfg.output, 'wb') as f:
-            pickle.dump(episodes, f)
+        '''with open(cfg.output, 'wb') as f:
+            pickle.dump(episodes, f)'''
 
 
 if __name__ == '__main__':
