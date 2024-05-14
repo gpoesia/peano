@@ -1,5 +1,7 @@
 # Peano - Learning Formal Mathematical Reasoning
 
+*(Note: this repository is frozen at the version we released in the paper linked below. Peano is being heavily actively developed, with a new major release by July 2024, along with a new arXiv paper).*
+
 Peano is a formal theorem proving environment based on a dependent type system and a finitely axiomatized proof system.
 Given any theory (some simple examples are in `theories`) and a problem, Peano provides a finite action space to produce /derivations/
 (e.g. proofs, computations or or constructions). Like in [Metamath](https://us.metamath.org/),
