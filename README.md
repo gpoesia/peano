@@ -34,7 +34,7 @@ sections of the [Khan Academy](khanacademy.org/) platform, is explained in the f
 
 ### Compiling the environment
 
-The Peano enviroment is written in Rust and has a Python API via [PyO3](https://pyo3.rs/v0.18.2/).
+The Peano environment is written in Rust and has a Python API via [PyO3](https://pyo3.rs/v0.18.2/).
 
 To compile it, you'll first need to install the Rust toolchain. For that, use [rustup](https://rustup.rs/).
 
@@ -46,7 +46,7 @@ With Rust installed, you can now compile the Peano environment:
 ```
 
 This should eventually terminate without errors and produce a binary library
-in `target/release` (it will be called `libpeano.so` on Linux, or something like `peano.dylib` on Mac).
+in `target/release` (it will be called `libpeano.so` on Linux, or something like `libpeano.dylib` on Mac).
 To use this library as a Python module, we'll use a simple symbolic link:
 
 ```sh
@@ -54,7 +54,28 @@ To use this library as a Python module, we'll use a simple symbolic link:
 [learning] $ ln -s ../environment/target/release/libpeano.so ./peano.so
 ```
 
-Note that this must be slightly adjusted on Mac (i.e., you'll link `peano.dylib` instead). With that, you should be able to do the following:
+> [!TIP]
+> On Mac, link `libpeano.dylib` instead of `libpeano.so`:
+> ```sh
+> [learning] $ ln -s ../environment/target/release/libpeano.dylib ./peano.so 
+> ```
+>
+> On Apple Silicon, to avoid `ld: symbol(s) not found for architecture arm64` errors with PyO3, you may need to create a `.cargo/config.toml` file with:
+> ```toml
+> [target.x86_64-apple-darwin]
+> rustflags = [
+>   "-C", "link-arg=-undefined",
+>   "-C", "link-arg=dynamic_lookup",
+> ]
+>
+> [target.aarch64-apple-darwin]
+> rustflags = [
+>   "-C", "link-arg=-undefined",
+>   "-C", "link-arg=dynamic_lookup",
+> ]
+> ```
+
+With that, you should be able to do the following:
 
 
 ```sh
